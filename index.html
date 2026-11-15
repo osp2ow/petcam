@@ -123,8 +123,9 @@
   .tltrack input{width:100%;accent-color:var(--accent);position:relative;z-index:2}
   #tlMarks{position:absolute;left:8px;right:8px;top:4px;height:6px;pointer-events:none;z-index:1}
   #tlMarks i{position:absolute;top:0;width:3px;height:6px;margin-left:-1px;background:var(--red);border-radius:2px}
-  #rSessions{flex-wrap:wrap;overflow:visible}
-  #rSessions button{text-align:left}
+  .sgroup{margin-bottom:10px}
+  .slabel{font-size:13px;color:var(--sub);margin:0 0 6px 2px;font-weight:600}
+  .sgroup .chips{flex-wrap:wrap;overflow:visible;padding-bottom:0}
   .rtitle{font-size:15px;font-weight:700;margin:4px 0 10px;line-height:1.4}
   .rsub{display:flex;align-items:center;justify-content:space-between;margin:8px 0}
   .clips{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
@@ -405,10 +406,10 @@
     <b>기록</b><span class="hint" id="rStorage"></span><span class="spacer"></span>
     <button id="rClose">닫기</button>
   </div>
-  <div class="chips" id="rSessions"></div>
+  <div id="rSessions"></div>
   <div class="hint" id="rEmpty" hidden></div>
   <div id="rBody" hidden>
-    <div class="rtitle" id="rTitle"></div>
+    <div class="rsub" id="tlHead"><b>타임랩스</b></div>
     <div class="rpview" id="tlView">
       <div class="tlbox" id="tlStage">
         <div id="tlWrap"><img id="tlImg" alt=""></div>
@@ -469,7 +470,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-16.22";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-16.23";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -2129,13 +2130,23 @@ async function openRecords(api) {
   }
   $("rEmpty").hidden = true;
   tlSetFs(landscapeMQ.matches, true);
-  for (const s of sessions) {
-    const b = document.createElement("button");
-    b.textContent = sessionLabel(s);
-    b.onclick = () => loadSession(s.id, b, s);
-    $("rSessions").appendChild(b);
+  let first = null;
+  for (const [kind, title] of [["window", "타임랩스"], ["day", "움직임 영상"]]) {
+    const list = sessions.filter((x) => (x.kind === "day") === (kind === "day"));
+    if (!list.length) continue;
+    const g = document.createElement("div");
+    g.className = "sgroup";
+    g.innerHTML = `<div class="slabel">${title}</div><div class="chips"></div>`;
+    for (const x of list) {
+      const b = document.createElement("button");
+      b.textContent = sessionLabel(x);
+      b.onclick = () => loadSession(x.id, b, x);
+      g.lastChild.appendChild(b);
+      if (!first) first = [x, b];
+    }
+    $("rSessions").appendChild(g);
   }
-  loadSession(sessions[0].id, $("rSessions").firstChild, sessions[0]);
+  if (first) loadSession(first[0].id, first[1], first[0]);
 }
 
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
@@ -2144,19 +2155,13 @@ function dayStr(t, long) {
   return long ? `${d.getMonth() + 1}월 ${d.getDate()}일(${WEEK[d.getDay()]})` : `${d.getMonth() + 1}/${d.getDate()}(${WEEK[d.getDay()]})`;
 }
 function hhmm(t) { const d = new Date(t); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; }
+// 버튼에는 날짜와 녹화 시간만
 function sessionLabel(s) {
-  if (s.kind === "day") return `움직임 영상 · ${dayStr(s.start)} · ${s.clips}개`;
-  const range = `${hhmm(s.start)}~${s.end ? hhmm(s.end) : ""}`;
-  return `타임랩스 · ${dayStr(s.start)} ${range} · 사진 ${s.frames}장` + (s.clips ? ` · 영상 ${s.clips}개` : "");
-}
-function sessionTitle(s) {
-  if (s.kind === "day") return `움직임 영상 — ${dayStr(s.start, true)} 하루 동안 잡힌 움직임 ${s.clips}개`;
-  return `타임랩스 — ${dayStr(s.start, true)} ${hhmm(s.start)} ~ ${s.end ? hhmm(s.end) : "기록 중"} · 사진 ${s.frames}장`
-    + (s.clips ? ` · 그 시간 움직임 영상 ${s.clips}개` : "");
+  if (s.kind === "day") return dayStr(s.start);
+  return `${dayStr(s.start)} ${hhmm(s.start)}~${s.end ? hhmm(s.end) : ""}`;
 }
 async function loadSession(sid, btn, info) {
-  [...$("rSessions").children].forEach((x) => x.classList.toggle("on", x === btn));
-  $("rTitle").textContent = info ? sessionTitle(info) : "";
+  $("rSessions").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === btn));
   resetPlayer();
   R.session = sid;
   $("rBody").hidden = false;
@@ -2182,7 +2187,8 @@ async function loadSession(sid, btn, info) {
       marks.appendChild(i);
     }
   }
-  $("tlView").hidden = !frames.length;     // 타임랩스 사진이 없으면(움직임 영상만 있는 날) 사진 칸 숨김
+  $("tlView").hidden = !frames.length;
+  $("tlHead").hidden = !frames.length;     // 타임랩스 사진이 없으면(움직임 영상만 있는 날) 사진 칸 숨김
   $("tlCtl").hidden = !frames.length;
   if (frames.length) showFrame(0);
   $("rClipCount").textContent = `(${clips.length})`;
