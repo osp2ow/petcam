@@ -387,7 +387,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-16.15";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-16.16";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -573,10 +573,11 @@ const motion = {
   canvas: document.createElement("canvas"),
   ctx: null, bg: null, w: 0, h: 0,
   hits: 0, score: 0,
-  lastAt: 0, lastAlert: 0, lastBroadcast: 0, ignoreUntil: 0
+  lastAt: 0, lastAlert: 0, lastBroadcast: 0, ignoreUntil: 0,
+  sharpRef: 0   // 평소 화면 선명도 (초점 변화 감지용)
 };
 function saveMotionCfg() { localStorage.setItem("petcam_motion", JSON.stringify(motion.cfg)); }
-function resetMotion(ms = 2500) { motion.bg = null; motion.hits = 0; motion.ignoreUntil = Date.now() + ms; }
+function resetMotion(ms = 2500) { motion.bg = null; motion.hits = 0; motion.sharpRef = 0; motion.ignoreUntil = Date.now() + ms; }
 
 function applyMotionCfg(cfg) {
   if (typeof cfg.enabled === "boolean") motion.cfg.enabled = cfg.enabled;
@@ -643,7 +644,25 @@ function motionTick() {
       g[y * w + x] = val; sum += val;
     }
   }
-  if (!motion.bg) { motion.bg = g; return; }
+  // 0) 화면 전체 선명도 측정 → 갑자기 변하면 초점이 나갔다/돌아오는 중 → 잠깐 감지 쉬기
+  let sharp = 0;
+  for (let y = 0; y < h - 1; y++) {
+    for (let x = 0; x < w - 1; x++) {
+      const i = y * w + x;
+      sharp += Math.abs(raw[i + 1] - raw[i]) + Math.abs(raw[i + w] - raw[i]);
+    }
+  }
+  sharp /= (w - 1) * (h - 1);
+  if (!motion.bg) { motion.bg = g; motion.sharpRef = sharp; return; }
+  if (motion.sharpRef > 0 && Math.abs(sharp - motion.sharpRef) / motion.sharpRef > 0.08) {
+    motion.bg = g; motion.hits = 0; motion.score = 0;
+    motion.ignoreUntil = Date.now() + 2500;
+    motion.sharpRef = motion.sharpRef * 0.5 + sharp * 0.5;
+    motion.focusAt = Date.now();
+    updateMotionPill();
+    return;
+  }
+  motion.sharpRef = motion.sharpRef * 0.9 + sharp * 0.1;
 
   let bgSum = 0;
   for (let i = 0; i < n; i++) bgSum += motion.bg[i];
@@ -687,7 +706,7 @@ function motionTick() {
   if (Date.now() < motion.ignoreUntil) { motion.hits = 0; return; }
   if (motion.score >= SENS[motion.cfg.sens]) motion.hits++;
   else motion.hits = 0;
-  if (motion.hits >= 3) {                      // 연속 3번(약 1.2초) 이상일 때만
+  if (motion.hits >= 4) {                      // 연속 4번(약 1.6초) 이상일 때만 (초점이 잠깐 흔들리는 건 무시)
     motion.hits = 0;
     triggerMotion(motion.score);
   }
