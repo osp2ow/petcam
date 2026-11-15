@@ -194,11 +194,6 @@
     <span class="pill" id="recPill" hidden>● <span id="recTime">00:00</span></span>
   </div>
 
-  <div class="zoomwrap" id="camZoomWrap" hidden>
-    <span>카메라</span>
-    <input type="range" id="camZoom" min="1" max="5" step="0.1" value="1">
-    <span id="camZoomVal">1.0×</span>
-  </div>
 
   <div class="bottombar">
     <button id="vMute">🔇 소리</button>
@@ -337,7 +332,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-15.6";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-15.7";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -1354,16 +1349,6 @@ function applyInfo(m) {
     else if (sheetMode === "view") updateBlackBtn();
   }
   if (m.quality) $("vQuality").value = m.quality;
-  const wrap = $("camZoomWrap");
-  if (m.zoom) {
-    wrap.hidden = false;
-    const r = $("camZoom");
-    r.min = m.zoom.min; r.max = Math.min(m.zoom.max, 10); r.step = m.zoom.step || 0.1;
-    if (document.activeElement !== r) r.value = m.zoom.cur;
-    $("camZoomVal").textContent = Number(m.zoom.cur).toFixed(1) + "×";
-  } else {
-    wrap.hidden = true;
-  }
 }
 
 // 통계 표시 (해상도 · fps · 비트레이트)
@@ -1494,14 +1479,6 @@ function endPointer(e) {
 stage.addEventListener("pointerup", endPointer);
 stage.addEventListener("pointercancel", endPointer);
 window.addEventListener("resize", () => renderZoom(false));
-
-/* ---------- 카메라(센서) 줌 ---------- */
-$("camZoom").addEventListener("input", (e) => {
-  const v = parseFloat(e.target.value);
-  $("camZoomVal").textContent = v.toFixed(1) + "×";
-  clearTimeout(view.zoomSendTimer);
-  view.zoomSendTimer = setTimeout(() => sendCtl({ t: "zoom", v }), 80);
-});
 
 /* ---------- 움직임 감지 설정 시트 (카메라/뷰어 공용) ---------- */
 let sheetMode = null;
