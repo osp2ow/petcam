@@ -123,6 +123,9 @@
   .tltrack input{width:100%;accent-color:var(--accent);position:relative;z-index:2}
   #tlMarks{position:absolute;left:8px;right:8px;top:4px;height:6px;pointer-events:none;z-index:1}
   #tlMarks i{position:absolute;top:0;width:3px;height:6px;margin-left:-1px;background:var(--red);border-radius:2px}
+  #rSessions{flex-wrap:wrap;overflow:visible}
+  #rSessions button{text-align:left}
+  .rtitle{font-size:15px;font-weight:700;margin:4px 0 10px;line-height:1.4}
   .rsub{display:flex;align-items:center;justify-content:space-between;margin:8px 0}
   .clips{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
   .clip{background:#17171b;border:1px solid var(--line);border-radius:12px;overflow:hidden;padding:0;text-align:left}
@@ -319,6 +322,15 @@
         <option value="600">10분</option>
       </select>
     </label>
+    <label class="row"><span>움직임 영상(클립) 저장</span><input type="checkbox" id="mClips"></label>
+    <label class="row"><span>움직임이 멈춘 뒤 더 찍는 시간</span>
+      <select id="mClipSec">
+        <option value="15">15초</option>
+        <option value="30">30초</option>
+        <option value="60">1분</option>
+      </select>
+    </label>
+    <div class="hint">움직임이 잡히면 언제든 그때부터 녹화해서, 움직임이 멈춘 뒤 정한 시간만큼 더 찍어요. 계속 움직이면 이어서 찍어요(최대 5분). 기록 탭에서 날짜별로 볼 수 있어요. 알림을 꺼도 영상은 저장돼요.</div>
 
     <div class="sec">🌙 알림 안 받는 시간</div>
     <label class="row"><span>켜기</span><input type="checkbox" id="mQuiet"></label>
@@ -368,14 +380,6 @@
         <option value="60">1분</option>
       </select>
     </label>
-    <label class="row"><span>움직이면 영상 클립 저장</span><input type="checkbox" id="mClips"></label>
-    <label class="row"><span>클립 길이</span>
-      <select id="mClipSec">
-        <option value="15">15초</option>
-        <option value="30">30초</option>
-        <option value="60">1분</option>
-      </select>
-    </label>
     <label class="row"><span>보관 기간</span>
       <select id="mKeep">
         <option value="1">1일</option>
@@ -398,13 +402,14 @@
 <!-- ================= 기록 보기 ================= -->
 <section id="records" hidden>
   <div class="rhead">
-    <b>📼 기록</b><span class="hint" id="rStorage"></span><span class="spacer"></span>
+    <b>기록</b><span class="hint" id="rStorage"></span><span class="spacer"></span>
     <button id="rClose">닫기</button>
   </div>
   <div class="chips" id="rSessions"></div>
   <div class="hint" id="rEmpty" hidden></div>
   <div id="rBody" hidden>
-    <div class="rpview">
+    <div class="rtitle" id="rTitle"></div>
+    <div class="rpview" id="tlView">
       <div class="tlbox" id="tlStage">
         <div id="tlWrap"><img id="tlImg" alt=""></div>
         <span class="pill" id="tlTime">-</span>
@@ -421,7 +426,7 @@
         <option value="30">빠르게</option>
       </select>
     </div>
-    <div class="rsub"><b>움직임 클립 <span id="rClipCount"></span></b><button id="rDelete">이 기록 삭제</button></div>
+    <div class="rsub"><b>움직임 영상 <span id="rClipCount"></span></b><button id="rDelete">이 기록 삭제</button></div>
     <div class="clips" id="rClips"></div>
   </div>
 </section>
@@ -464,7 +469,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-16.21";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-16.22";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -651,7 +656,7 @@ const motion = {
   ctx: null, bg: null, w: 0, h: 0,
   hits: 0, score: 0,
   lastAt: 0, lastAlert: 0, lastBroadcast: 0, ignoreUntil: 0,
-  sharpRef: 0   // 평소 화면 선명도 (초점 변화 감지용)
+  sharpRef: null   // 칸별 평소 선명도 (초점 변화 감지용)
 };
 // 예전 기본값(10분)으로 저장돼 있던 '최근 영상 보관'을 한 번만 1시간으로 올림
 if (!localStorage.getItem("petcam_mig_replay60")) {
@@ -659,8 +664,10 @@ if (!localStorage.getItem("petcam_mig_replay60")) {
   localStorage.setItem("petcam_mig_replay60", "1");
   localStorage.setItem("petcam_motion", JSON.stringify(motion.cfg));
 }
+// 알림, 움직임 클립, 자동 기록 중 하나라도 켜져 있으면 감지를 돌림
+function motionActive() { return !!(motion.cfg.enabled || motion.cfg.clips || (typeof rec !== "undefined" && rec.session)); }
 function saveMotionCfg() { localStorage.setItem("petcam_motion", JSON.stringify(motion.cfg)); }
-function resetMotion(ms = 2500) { motion.bg = null; motion.hits = 0; motion.sharpRef = 0; motion.ignoreUntil = Date.now() + ms; }
+function resetMotion(ms = 2500) { motion.bg = null; motion.hits = 0; motion.sharpRef = null; motion.ignoreUntil = Date.now() + ms; }
 
 function applyMotionCfg(cfg) {
   if (typeof cfg.enabled === "boolean") motion.cfg.enabled = cfg.enabled;
@@ -688,14 +695,14 @@ function applyMotionCfg(cfg) {
 
 function updateMotionPill() {
   const el = $("motionPill");
-  if (!motion.cfg.enabled && !rec.session) { el.textContent = "🐾 감지 꺼짐"; return; }
+  if (!motionActive()) { el.textContent = "🐾 감지 꺼짐"; return; }
   const last = motion.lastAt ? ` · 최근 ${timeStr(motion.lastAt)}` : "";
   el.textContent = `🐾 ${(motion.score * 100).toFixed(1)}%${last}`;
 }
 
 function motionTick() {
   const v = $("camVideo");
-  if ((!motion.cfg.enabled && !rec.session) || !v.videoWidth || document.visibilityState !== "visible") {
+  if (!motionActive() || !v.videoWidth || document.visibilityState !== "visible") {
     motion.score = 0; updateMotionPill(); return;
   }
   // 작은 크기(160px 폭)로 줄여서 흑백 비교 → 노이즈도 줄고 가벼움
@@ -727,25 +734,36 @@ function motionTick() {
       g[y * w + x] = val; sum += val;
     }
   }
-  // 0) 화면 전체 선명도 측정 → 갑자기 변하면 초점이 나갔다/돌아오는 중 → 잠깐 감지 쉬기
-  let sharp = 0;
+  // 0) 칸별 선명도 측정 → 무늬가 있는 칸 "대부분"의 선명도가 한꺼번에 변하면 초점이 나갔다/돌아오는 중 → 잠깐 감지 쉬기
+  //    (움직이는 물체는 몇 칸만 바꾸니까 여기에 안 걸림)
+  const SC = 16, SR = 9;
+  const cs = new Float32Array(SC * SR), cn = new Float32Array(SC * SR);
   for (let y = 0; y < h - 1; y++) {
+    const r = Math.min(SR - 1, Math.floor(y * SR / h));
     for (let x = 0; x < w - 1; x++) {
-      const i = y * w + x;
-      sharp += Math.abs(raw[i + 1] - raw[i]) + Math.abs(raw[i + w] - raw[i]);
+      const i = y * w + x, k = r * SC + Math.min(SC - 1, Math.floor(x * SC / w));
+      cs[k] += Math.abs(raw[i + 1] - raw[i]) + Math.abs(raw[i + w] - raw[i]);
+      cn[k]++;
     }
   }
-  sharp /= (w - 1) * (h - 1);
-  if (!motion.bg) { motion.bg = g; motion.sharpRef = sharp; return; }
-  if (motion.sharpRef > 0 && Math.abs(sharp - motion.sharpRef) / motion.sharpRef > 0.08) {
+  for (let k = 0; k < SC * SR; k++) cs[k] = cn[k] ? cs[k] / cn[k] : 0;
+  if (!motion.bg || !motion.sharpRef) { motion.bg = g; motion.sharpRef = cs; return; }
+  let textured = 0, focusCells = 0;
+  for (let k = 0; k < SC * SR; k++) {
+    const ref = motion.sharpRef[k];
+    if (ref < 6) continue;                               // 무늬 없는 칸(벽 등)은 판단에서 제외
+    textured++;
+    if (Math.abs(cs[k] - ref) / ref > 0.2) focusCells++;
+  }
+  if (textured >= 12 && focusCells / textured > 0.5) {
     motion.bg = g; motion.hits = 0; motion.score = 0;
     motion.ignoreUntil = Date.now() + 2500;
-    motion.sharpRef = motion.sharpRef * 0.5 + sharp * 0.5;
+    for (let k = 0; k < SC * SR; k++) motion.sharpRef[k] = motion.sharpRef[k] * 0.5 + cs[k] * 0.5;
     motion.focusAt = Date.now();
     updateMotionPill();
     return;
   }
-  motion.sharpRef = motion.sharpRef * 0.9 + sharp * 0.1;
+  for (let k = 0; k < SC * SR; k++) motion.sharpRef[k] = motion.sharpRef[k] * 0.9 + cs[k] * 0.1;
 
   let bgSum = 0;
   for (let i = 0; i < n; i++) bgSum += motion.bg[i];
@@ -847,7 +865,7 @@ async function triggerMotion(score) {
   const now = Date.now();
   motion.lastAt = now;
   updateMotionPill();
-  if (rec.session && motion.cfg.clips) startClip();
+  if (motion.cfg.clips) startClip();
   if (!motion.cfg.enabled) return;
   const watching = [...cam.viewers.values()].some((v) => v.conn.open);
   if (watching && now - motion.lastBroadcast > 10_000) {     // 보고 있는 아이폰에 배너 (10초에 한 번)
@@ -945,7 +963,12 @@ const localRecords = {
     const all = (await idbReq("sessions", "readonly", (s) => s.getAll())) || [];
     const out = [];
     for (const x of all) {
-      out.push({ id: x.id, start: x.start, frames: await idbCountBySession("frames", x.id), clips: await idbCountBySession("clips", x.id) });
+      let end = x.end || 0;
+      if (!end && x.kind !== "day") {
+        const keys = (await idbKeysBySession("frames", x.id)) || [];
+        for (const k of keys) end = Math.max(end, +String(k).split("_")[1] || 0);
+      }
+      out.push({ id: x.id, start: x.start, end, kind: x.kind || "window", frames: await idbCountBySession("frames", x.id), clips: await idbCountBySession("clips", x.id) });
     }
     return out.sort((a, b) => b.start - a.start);
   },
@@ -990,10 +1013,24 @@ function pickRecMime() {
 }
 
 // 움직임이 생기면 짧은 영상 클립 녹화 (녹화 중 또 움직이면 조금씩 연장, 최대 길이 ×3)
+// 클립을 넣을 묶음: 자동 기록 시간대면 그 묶음, 아니면 오늘 날짜 묶음
+async function clipSession() {
+  if (rec.session) return rec.session;
+  const d = new Date(); d.setHours(0, 0, 0, 0);
+  const sid = "day-" + d.getTime();
+  if (rec.daySid !== sid) {
+    rec.daySid = sid;
+    const old = await idbGet("sessions", sid).catch(() => null);
+    if (!old) await idbPut("sessions", { id: sid, start: d.getTime(), kind: "day" }).catch(() => {});
+    cleanupOldSessions();
+  }
+  return sid;
+}
+const CLIP_MAX_MS = 5 * 60 * 1000;
 function startClip() {
   const c = motion.cfg, now = Date.now();
-  if (rec.clip) {
-    rec.clip.endAt = Math.min(rec.clip.startAt + c.clipSec * 3000, Math.max(rec.clip.endAt, now + c.clipSec * 500));
+  if (rec.clip) {   // 녹화 중 또 움직이면: 마지막 움직임 후 N초까지 연장 (최대 5분)
+    rec.clip.endAt = Math.min(rec.clip.startAt + CLIP_MAX_MS, now + c.clipSec * 1000);
     return;
   }
   const tracks = [outVideoTrack(), ...(cam.stream?.getAudioTracks() || [])].filter((t) => t && t.readyState === "live");
@@ -1004,6 +1041,7 @@ function startClip() {
   catch (e) { console.warn("clip", e); return; }
   const clip = { startAt: now, endAt: now + c.clipSec * 1000, chunks: [], r, session: rec.session, thumb: null };
   rec.clip = clip;
+  clipSession().then((sid) => { clip.session = clip.session || sid; });
   r.ondataavailable = (e) => { if (e.data.size) clip.chunks.push(e.data); };
   r.onstop = async () => {
     const type = r.mimeType || mime || "video/mp4";
@@ -1083,9 +1121,10 @@ async function recTick() {
   recBusy = true;
   try {
     const c = motion.cfg, now = Date.now();
+    if (rec.clip && now >= rec.clip.endAt) finishClip();
     const ws = c.rec ? windowStart(now, c.rFrom, c.rTo) : null;
     if (!ws) {
-      if (rec.session) { rec.session = null; finishClip(); }
+      if (rec.session) rec.session = null;
       updateRecPill();
       return;
     }
@@ -1094,7 +1133,9 @@ async function recTick() {
       finishClip();
       rec.session = sid;
       rec.lastFrame = 0;
-      await idbPut("sessions", { id: sid, start: ws });
+      let dur = hm(c.rTo) - hm(c.rFrom);
+      if (dur <= 0) dur += 24 * 60;
+      await idbPut("sessions", { id: sid, start: ws, end: ws + dur * 60000, kind: "window" });
       rec.frames = await idbCountBySession("frames", sid);
       rec.clips = await idbCountBySession("clips", sid);
       cleanupOldSessions();
@@ -1324,7 +1365,7 @@ function camInfo() {
 }
 
 function updateCamHud() {
-  sendAll({ t: "score", v: motion.cfg.enabled || rec.session ? motion.score : -1, at: motion.lastAt });
+  sendAll({ t: "score", v: motionActive() ? motion.score : -1, at: motion.lastAt });
   const info = camInfo();
   const fps = Math.round(camVideoTrack()?.getSettings?.().frameRate || 0);
   $("camRes").textContent = (info.res || "-") + (fps ? ` · ${fps}fps` : "");
@@ -2080,25 +2121,42 @@ async function openRecords(api) {
     $("rStorage").textContent = info && info.quota ? `아이패드 사용 ${fmtBytes(info.used)}` : "";
   } catch (_) {}
   let sessions = [];
-  try { sessions = await api.listSessions(); }
+  try { sessions = (await api.listSessions()).filter((x) => !(x.kind === "day" && !x.clips)); }   // 움직임이 없던 날은 생략
   catch (e) { $("rEmpty").textContent = "불러오지 못했어요: " + e.message; return; }
   if (!sessions.length) {
-    $("rEmpty").textContent = "아직 기록이 없어요. 설정 → 자동 기록을 켜고 시간을 정해주세요.";
+    $("rEmpty").textContent = "아직 기록이 없어요. 움직임이 잡히면 영상이 여기에 쌓여요. (설정 → 자동 기록을 켜면 타임랩스 사진도 남아요)";
     return;
   }
   $("rEmpty").hidden = true;
   tlSetFs(landscapeMQ.matches, true);
   for (const s of sessions) {
     const b = document.createElement("button");
-    b.textContent = `${fmtDate(s.start)}~ · 📷${s.frames} · 🎬${s.clips}`;
-    b.onclick = () => loadSession(s.id, b);
+    b.textContent = sessionLabel(s);
+    b.onclick = () => loadSession(s.id, b, s);
     $("rSessions").appendChild(b);
   }
-  loadSession(sessions[0].id, $("rSessions").firstChild);
+  loadSession(sessions[0].id, $("rSessions").firstChild, sessions[0]);
 }
 
-async function loadSession(sid, btn) {
+const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
+function dayStr(t, long) {
+  const d = new Date(t);
+  return long ? `${d.getMonth() + 1}월 ${d.getDate()}일(${WEEK[d.getDay()]})` : `${d.getMonth() + 1}/${d.getDate()}(${WEEK[d.getDay()]})`;
+}
+function hhmm(t) { const d = new Date(t); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; }
+function sessionLabel(s) {
+  if (s.kind === "day") return `움직임 영상 · ${dayStr(s.start)} · ${s.clips}개`;
+  const range = `${hhmm(s.start)}~${s.end ? hhmm(s.end) : ""}`;
+  return `타임랩스 · ${dayStr(s.start)} ${range} · 사진 ${s.frames}장` + (s.clips ? ` · 영상 ${s.clips}개` : "");
+}
+function sessionTitle(s) {
+  if (s.kind === "day") return `움직임 영상 — ${dayStr(s.start, true)} 하루 동안 잡힌 움직임 ${s.clips}개`;
+  return `타임랩스 — ${dayStr(s.start, true)} ${hhmm(s.start)} ~ ${s.end ? hhmm(s.end) : "기록 중"} · 사진 ${s.frames}장`
+    + (s.clips ? ` · 그 시간 움직임 영상 ${s.clips}개` : "");
+}
+async function loadSession(sid, btn, info) {
   [...$("rSessions").children].forEach((x) => x.classList.toggle("on", x === btn));
+  $("rTitle").textContent = info ? sessionTitle(info) : "";
   resetPlayer();
   R.session = sid;
   $("rBody").hidden = false;
@@ -2124,8 +2182,9 @@ async function loadSession(sid, btn) {
       marks.appendChild(i);
     }
   }
+  $("tlView").hidden = !frames.length;     // 타임랩스 사진이 없으면(움직임 영상만 있는 날) 사진 칸 숨김
+  $("tlCtl").hidden = !frames.length;
   if (frames.length) showFrame(0);
-  else $("tlTime").textContent = "타임랩스 사진 없음";
   $("rClipCount").textContent = `(${clips.length})`;
   renderClips(sid);
 }
@@ -2194,13 +2253,13 @@ $("tlRange").addEventListener("input", (e) => {
 
 async function renderClips(sid) {
   const box = $("rClips");
-  if (!R.clips.length) { box.innerHTML = '<div class="hint">이 시간대에 움직임 클립이 없어요.</div>'; return; }
+  if (!R.clips.length) { box.innerHTML = '<div class="hint">이 시간 동안 잡힌 움직임 영상이 없어요.</div>'; return; }
   const items = [];
   for (const c of R.clips) {
     const b = document.createElement("button");
     b.className = "clip";
     const t = new Date(c.ts).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    b.innerHTML = `<div class="th"></div><div class="meta">🎬 ${t}<br><small>${c.dur}초</small></div>`;
+    b.innerHTML = `<div class="th"></div><div class="meta">${t}<br><small>${c.dur}초</small></div>`;
     b.onclick = () => playClip(c);
     box.appendChild(b);
     items.push([c, b]);
@@ -2453,7 +2512,7 @@ function openClipPlayer(api, clips, idx) {
   rpResetCache();
   RP.fetch = (id) => api.getClip(id);
   $("replayModal").classList.add("clipmode");
-  $("rpTitle").textContent = "움직임 클립";
+  $("rpTitle").textContent = "움직임 영상";
   $("replayModal").hidden = false;
   rpSetFs(landscapeMQ.matches, true);
   RP.all = clips;
