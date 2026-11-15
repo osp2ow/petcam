@@ -59,9 +59,8 @@
 
   /* ---------- 카메라(아이패드) ---------- */
   #camStage{position:absolute;inset:0;touch-action:none;overflow:hidden}
-  #camVideo,#camOut{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;
+  #camVideo{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;
     transform-origin:0 0;will-change:transform;background:#000}
-  #camOut{z-index:2;pointer-events:none}
   .fixed-badge{background:rgba(255,179,64,.9)!important;color:#111}
   #blackout{position:fixed;inset:0;background:#000;z-index:55;display:flex;align-items:center;justify-content:center;
     touch-action:none;-webkit-touch-callout:none;cursor:none}
@@ -162,7 +161,6 @@
 <section id="cam" class="screen" hidden>
   <div id="camStage">
     <video id="camVideo" playsinline autoplay muted></video>
-    <video id="camOut" playsinline autoplay muted hidden></video>
   </div>
   <div class="zoombadge" id="camZoomBadge">1.0×</div>
   <div class="topbar">
@@ -343,7 +341,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-15.8";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-15.9";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -940,7 +938,8 @@ function startCrop() {
   const v = $("camVideo");
   const c = document.createElement("canvas");
   if (!c.captureStream) return false;
-  c.style.cssText = "position:fixed;left:-10000px;top:0;width:2px;height:2px;opacity:0;pointer-events:none";
+  // Safari가 화면 밖 캔버스는 갱신을 멈출 수 있어서, 화면 안에 거의 안 보이게 둠
+  c.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-1";
   document.body.appendChild(c);
   const ctx = c.getContext("2d");
   czoom.canvas = c; czoom.ctx = ctx;
@@ -994,18 +993,15 @@ function updateCropUI() {
   $("camReframe").hidden = !fixed;
   $("cropPill").hidden = !fixed;
 }
-async function applyCrop(c) {
+async function applyCrop(c, restoring) {
   if (!$("camVideo").videoWidth) return;
   cam.crop = c;
   localStorage.setItem("petcam_crop", JSON.stringify(c));
   if (!czoom.track && !startCrop()) { cam.crop = null; return toast("이 기기에서는 구도 고정을 쓸 수 없어요"); }
   await replaceSenders(czoom.track);
-  const out = $("camOut");
-  out.srcObject = new MediaStream([czoom.track]);
-  out.hidden = false;
-  out.play().catch(() => {});
+  // 아이패드 화면은 손으로 맞춘 확대 상태를 그대로 유지 (새로고침으로 복원할 땐 저장된 구도로 맞춤)
+  if (restoring) { const t = cropToView(c); camZoom.set(t.s, t.tx, t.ty); }
   camZoom.enabled = false;
-  camZoom.reset(false);
   resetMotion();
   updateCropUI();
   broadcastInfo();
@@ -1016,12 +1012,8 @@ async function clearCrop(keepView) {
   localStorage.removeItem("petcam_crop");
   stopCrop();
   await replaceSenders(camVideoTrack());
-  const out = $("camOut");
-  out.hidden = true;
-  out.srcObject = null;
   camZoom.enabled = true;
-  if (keepView && c && $("camVideo").videoWidth) { const t = cropToView(c); camZoom.set(t.s, t.tx, t.ty); }
-  else camZoom.reset(false);
+  if (!keepView || !c) camZoom.reset(false);   // 다시 잡기: 지금 확대 상태에서 이어서 조절
   resetMotion();
   updateCropUI();
   broadcastInfo();
@@ -1274,7 +1266,7 @@ async function startCamMode() {
     const saved = JSON.parse(localStorage.getItem("petcam_crop") || "null");
     if (saved && saved.size > 0 && saved.size <= 1) {
       const v = $("camVideo");
-      const go2 = () => applyCrop(saved);
+      const go2 = () => setTimeout(() => applyCrop(saved, true), 300);
       if (v.videoWidth) go2(); else v.addEventListener("loadedmetadata", go2, { once: true });
     }
   } catch (_) {}
