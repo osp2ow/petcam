@@ -58,7 +58,11 @@
   .spacer{flex:1}
 
   /* ---------- 카메라(아이패드) ---------- */
-  #camVideo{width:100%;height:100%;object-fit:contain;background:#000}
+  #camStage{position:absolute;inset:0;touch-action:none;overflow:hidden}
+  #camVideo,#camOut{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;
+    transform-origin:0 0;will-change:transform;background:#000}
+  #camOut{z-index:2;pointer-events:none}
+  .fixed-badge{background:rgba(255,179,64,.9)!important;color:#111}
   #blackout{position:fixed;inset:0;background:#000;z-index:55;display:flex;align-items:center;justify-content:center;
     touch-action:none;-webkit-touch-callout:none;cursor:none}
 
@@ -66,7 +70,7 @@
   #stage{position:absolute;inset:0;touch-action:none;overflow:hidden}
   #remote{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;
     transform-origin:0 0;will-change:transform;background:#000}
-  #zoomBadge{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:28px;font-weight:700;
+  .zoombadge{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:28px;font-weight:700;
     background:rgba(0,0,0,.5);padding:8px 16px;border-radius:14px;z-index:6;pointer-events:none;opacity:0;transition:opacity .3s}
   .zoomwrap{position:absolute;right:10px;top:50%;transform:translateY(-50%);z-index:5;display:flex;flex-direction:column;
     align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:12px 8px;transition:opacity .25s;
@@ -156,17 +160,24 @@
 
 <!-- ================= 카메라 모드 (아이패드) ================= -->
 <section id="cam" class="screen" hidden>
-  <video id="camVideo" playsinline autoplay muted></video>
+  <div id="camStage">
+    <video id="camVideo" playsinline autoplay muted></video>
+    <video id="camOut" playsinline autoplay muted hidden></video>
+  </div>
+  <div class="zoombadge" id="camZoomBadge">1.0×</div>
   <div class="topbar">
     <span class="pill"><span class="dot wait" id="camDot"></span><span id="camStatus">준비 중</span></span>
     <span class="pill">👀 <span id="viewerCount">0</span></span>
     <span class="pill" id="camRes">-</span>
     <span class="pill" id="motionPill">🐾 -</span>
     <span class="pill" id="recStatePill" hidden>📼</span>
+    <span class="pill fixed-badge" id="cropPill" hidden>📌 구도 고정</span>
     <span class="spacer"></span>
     <span class="pill" id="camRoom"></span>
   </div>
   <div class="bottombar">
+    <button id="camFix" class="on" hidden>📌 이 구도로 고정</button>
+    <button id="camReframe" hidden>🔲 구도 다시 잡기</button>
     <button id="camBlack">🌙 화면 끄기</button>
     <button id="camMotion">⚙️ 설정</button>
     <button id="camRecords">📼 기록</button>
@@ -185,7 +196,7 @@
 <section id="view" class="screen" hidden>
   <div id="stage"><video id="remote" playsinline autoplay muted></video></div>
   <div id="overlayMsg"><div class="spin"></div><div id="overlayText">카메라에 연결 중…</div></div>
-  <div id="zoomBadge">1.0×</div>
+  <div class="zoombadge" id="zoomBadge">1.0×</div>
 
   <div class="topbar">
     <span class="pill"><span class="dot wait" id="viewDot"></span><span id="viewStatus">연결 중</span></span>
@@ -332,7 +343,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-15.7";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-15.8";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -558,7 +569,7 @@ function motionTick() {
     motion.w = w; motion.h = h; motion.bg = null; motion.ctx = null;
   }
   const ctx = motion.ctx || (motion.ctx = motion.canvas.getContext("2d", { willReadFrequently: true }));
-  ctx.drawImage(v, 0, 0, w, h);
+  ctx.drawImage(v, ...srcRect(v), 0, 0, w, h);
   const d = ctx.getImageData(0, 0, w, h).data;
   const n = w * h;
   const g = new Float32Array(n);
@@ -592,14 +603,21 @@ function motionTick() {
   }
 }
 
+// 고정 구도가 있으면 그 영역, 없으면 전체 [sx, sy, sw, sh]
+function srcRect(v) {
+  const vw = v.videoWidth, vh = v.videoHeight, c = cam.crop;
+  if (!c) return [0, 0, vw, vh];
+  return [(c.cx - c.size / 2) * vw, (c.cy - c.size / 2) * vh, c.size * vw, c.size * vh];
+}
 function snapshotBlob(maxW = 1280, quality = 0.82) {
   const v = $("camVideo");
   if (!v.videoWidth) return Promise.resolve(null);
-  const k = Math.min(1, maxW / v.videoWidth);
+  const r = srcRect(v);
+  const k = Math.min(1, maxW / r[2]);
   const c = document.createElement("canvas");
-  c.width = Math.round(v.videoWidth * k);
-  c.height = Math.round(v.videoHeight * k);
-  c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+  c.width = Math.max(1, Math.round(r[2] * k));
+  c.height = Math.max(1, Math.round(r[3] * k));
+  c.getContext("2d").drawImage(v, ...r, 0, 0, c.width, c.height);
   return new Promise((r) => c.toBlob(r, "image/jpeg", quality));
 }
 
@@ -779,7 +797,7 @@ function startClip() {
     rec.clip.endAt = Math.min(rec.clip.startAt + c.clipSec * 3000, Math.max(rec.clip.endAt, now + c.clipSec * 500));
     return;
   }
-  const tracks = [camVideoTrack(), ...(cam.stream?.getAudioTracks() || [])].filter((t) => t && t.readyState === "live");
+  const tracks = [outVideoTrack(), ...(cam.stream?.getAudioTracks() || [])].filter((t) => t && t.readyState === "live");
   if (!tracks.length || !window.MediaRecorder) return;
   const mime = pickRecMime();
   let r;
@@ -895,8 +913,119 @@ const cam = {
   peer: null, peerId: "",
   viewers: new Map(),   // 시청자 peerId -> { conn, call, videoSender, audioSender, connected }
   wakeLock: null,
-  black: false, lastTouch: Date.now()
+  black: false, lastTouch: Date.now(),
+  crop: null   // 고정 구도 {cx, cy, size} (원본 대비 비율)
 };
+
+/* ---------- 구도 고정: 아이패드에서 확대·이동한 구역만 잘라서 송출/감지/기록 ---------- */
+const czoom = { canvas: null, ctx: null, track: null, loop: 0 };
+function outVideoTrack() { return czoom.track || camVideoTrack(); }
+function outStream() {
+  return new MediaStream([outVideoTrack(), ...(cam.stream?.getAudioTracks() || [])].filter(Boolean));
+}
+async function replaceSenders(track) {
+  for (const v of cam.viewers.values()) {
+    if (v.videoSender && track) {
+      try { await v.videoSender.replaceTrack(track); applyBitrate(v.videoSender); } catch (_) {}
+    }
+  }
+}
+function stopCrop() {
+  czoom.loop++;
+  if (czoom.track) { try { czoom.track.stop(); } catch (_) {} }
+  czoom.canvas?.remove();
+  czoom.track = null; czoom.canvas = null; czoom.ctx = null;
+}
+function startCrop() {
+  const v = $("camVideo");
+  const c = document.createElement("canvas");
+  if (!c.captureStream) return false;
+  c.style.cssText = "position:fixed;left:-10000px;top:0;width:2px;height:2px;opacity:0;pointer-events:none";
+  document.body.appendChild(c);
+  const ctx = c.getContext("2d");
+  czoom.canvas = c; czoom.ctx = ctx;
+  const id = ++czoom.loop;
+  const draw = () => {
+    if (id !== czoom.loop) return;
+    const vw = v.videoWidth, vh = v.videoHeight;
+    if (vw && vh && cam.crop) {
+      const ow = Math.min(vw, 1920), oh = Math.round(ow * vh / vw);   // 보내는 해상도 최대 1080p
+      if (c.width !== ow || c.height !== oh) { c.width = ow; c.height = oh; }
+      ctx.drawImage(v, ...srcRect(v), 0, 0, ow, oh);
+    }
+    requestAnimationFrame(draw);
+  };
+  const vw = v.videoWidth || 1920, vh = v.videoHeight || 1080;
+  c.width = Math.min(vw, 1920); c.height = Math.round(c.width * vh / vw);
+  draw();
+  czoom.track = c.captureStream(30).getVideoTracks()[0];
+  return true;
+}
+
+function fitBox(W, H, vw, vh) {
+  const k = Math.min(W / vw, H / vh);
+  const cw = vw * k, ch = vh * k;
+  return { cw, ch, ox: (W - cw) / 2, oy: (H - ch) / 2 };
+}
+// 지금 화면에 보이는 영역 → 원본 기준 구도
+function viewToCrop(z) {
+  const v = $("camVideo"), st = $("camStage").getBoundingClientRect();
+  const W = st.width, H = st.height;
+  const { cw, ch, ox, oy } = fitBox(W, H, v.videoWidth, v.videoHeight);
+  const x0 = Math.max(0, (-z.tx / z.s - ox) / cw), x1 = Math.min(1, ((W - z.tx) / z.s - ox) / cw);
+  const y0 = Math.max(0, (-z.ty / z.s - oy) / ch), y1 = Math.min(1, ((H - z.ty) / z.s - oy) / ch);
+  const size = Math.min(1, Math.max(x1 - x0, y1 - y0, 0.1));
+  const cx = Math.min(1 - size / 2, Math.max(size / 2, (x0 + x1) / 2));
+  const cy = Math.min(1 - size / 2, Math.max(size / 2, (y0 + y1) / 2));
+  return { cx, cy, size };
+}
+// 저장된 구도 → 화면 확대 상태 (다시 잡기 할 때 그 자리에서 시작)
+function cropToView(c) {
+  const v = $("camVideo"), st = $("camStage").getBoundingClientRect();
+  const W = st.width, H = st.height;
+  const { cw, ch, ox, oy } = fitBox(W, H, v.videoWidth, v.videoHeight);
+  const s = Math.min(W / (c.size * cw), H / (c.size * ch));
+  return { s, tx: W / 2 - s * (ox + c.cx * cw), ty: H / 2 - s * (oy + c.cy * ch) };
+}
+
+function updateCropUI() {
+  const fixed = !!cam.crop;
+  $("camFix").hidden = fixed || camZoom.s <= 1.05;
+  $("camReframe").hidden = !fixed;
+  $("cropPill").hidden = !fixed;
+}
+async function applyCrop(c) {
+  if (!$("camVideo").videoWidth) return;
+  cam.crop = c;
+  localStorage.setItem("petcam_crop", JSON.stringify(c));
+  if (!czoom.track && !startCrop()) { cam.crop = null; return toast("이 기기에서는 구도 고정을 쓸 수 없어요"); }
+  await replaceSenders(czoom.track);
+  const out = $("camOut");
+  out.srcObject = new MediaStream([czoom.track]);
+  out.hidden = false;
+  out.play().catch(() => {});
+  camZoom.enabled = false;
+  camZoom.reset(false);
+  resetMotion();
+  updateCropUI();
+  broadcastInfo();
+}
+async function clearCrop(keepView) {
+  const c = cam.crop;
+  cam.crop = null;
+  localStorage.removeItem("petcam_crop");
+  stopCrop();
+  await replaceSenders(camVideoTrack());
+  const out = $("camOut");
+  out.hidden = true;
+  out.srcObject = null;
+  camZoom.enabled = true;
+  if (keepView && c && $("camVideo").videoWidth) { const t = cropToView(c); camZoom.set(t.s, t.tx, t.ty); }
+  else camZoom.reset(false);
+  resetMotion();
+  updateCropUI();
+  broadcastInfo();
+}
 
 /* ---------- 화면 끄기 (잠금 화면 대용: 송출은 계속) ---------- */
 function setBlack(on) {
@@ -1016,9 +1145,11 @@ async function restartVideo() {
   const nt = ns.getVideoTracks()[0];
   cam.stream.addTrack(nt);
   $("camVideo").srcObject = cam.stream;
-  for (const v of cam.viewers.values()) {
-    if (v.videoSender) {
-      try { await v.videoSender.replaceTrack(nt); applyBitrate(v.videoSender); } catch (_) {}
+  if (!czoom.track) {          // 구도 고정 중이면 잘라 보내는 트랙은 그대로
+    for (const v of cam.viewers.values()) {
+      if (v.videoSender) {
+        try { await v.videoSender.replaceTrack(nt); applyBitrate(v.videoSender); } catch (_) {}
+      }
     }
   }
   cam.zoom = 1;
@@ -1033,6 +1164,7 @@ function handleCamMessage(m, conn) {
   else if (m.t === "flip") {
     cam.facing = cam.facing === "environment" ? "user" : "environment";
     localStorage.setItem("petcam_facing", cam.facing);
+    if (cam.crop) clearCrop(false);
     restartVideo();
   } else if (m.t === "quality" && QUALITY[m.v]) {
     cam.quality = m.v;
@@ -1067,7 +1199,7 @@ function onViewerConn(conn) {
     cam.viewers.set(conn.peer, v);
     try { conn.send(camInfo()); } catch (_) {}
 
-    const call = cam.peer.call(conn.peer, cam.stream, { sdpTransform: preferH264 });
+    const call = cam.peer.call(conn.peer, outStream(), { sdpTransform: preferH264 });
     v.call = call;
     call.on("close", () => dropViewer(conn.peer));
     call.on("error", () => dropViewer(conn.peer));
@@ -1138,6 +1270,14 @@ async function startCamMode() {
   $("camVideo").srcObject = cam.stream;
   await requestWakeLock();
   updateCamHud();
+  try {
+    const saved = JSON.parse(localStorage.getItem("petcam_crop") || "null");
+    if (saved && saved.size > 0 && saved.size <= 1) {
+      const v = $("camVideo");
+      const go2 = () => applyCrop(saved);
+      if (v.videoWidth) go2(); else v.addEventListener("loadedmetadata", go2, { once: true });
+    }
+  } catch (_) {}
 
   if (!motion.cfg.topic) { motion.cfg.topic = `petcam-${room}`; saveMotionCfg(); }
   resetMotion(4000);
@@ -1181,6 +1321,8 @@ document.addEventListener("visibilitychange", async () => {
 });
 
 $("camBlack").onclick = () => setBlack(true);
+$("camFix").onclick = () => applyCrop(viewToCrop(camZoom)).then(() => toast("📌 이 구도로 고정했어요. 아이폰·감지·기록 모두 이 구도로 바뀌어요."));
+$("camReframe").onclick = () => clearCrop(true).then(() => toast("손가락으로 구도를 다시 잡고 📌 고정을 눌러주세요. (두 번 탭하면 전체 화면)", null, null, 5000));
 $("camMotion").onclick = () => openSheet("cam");
 $("camRecords").onclick = () => openRecords(localRecords);
 $("camFlip").onclick = () => handleCamMessage({ t: "flip" });
@@ -1372,113 +1514,98 @@ setInterval(async () => {
   } catch (_) {}
 }, 1000);
 
-/* ---------- 손가락 확대 / 이동 (디지털 줌) ---------- */
-const zoomState = { s: 1, tx: 0, ty: 0 };
-const pointers = new Map();
-let gesture = null;
-let lastTap = 0, tapTimer = null, moved = false;
+/* ---------- 손가락 확대 / 이동 (공용: 아이폰 보기 화면 + 아이패드 구도 잡기) ---------- */
+function makeZoomable(stageEl, targetEl, badgeEl, onTap) {
+  const z = { s: 1, tx: 0, ty: 0, enabled: true, onChange: null };
+  const pointers = new Map();
+  let gesture = null, lastTap = 0, tapTimer = null, moved = false;
 
-function clampPan() {
-  const st = $("stage").getBoundingClientRect();
-  const minX = st.width * (1 - zoomState.s), minY = st.height * (1 - zoomState.s);
-  zoomState.tx = Math.min(0, Math.max(minX, zoomState.tx));
-  zoomState.ty = Math.min(0, Math.max(minY, zoomState.ty));
-}
-function renderZoom(showBadge = true) {
-  clampPan();
-  $("remote").style.transform = `translate(${zoomState.tx}px,${zoomState.ty}px) scale(${zoomState.s})`;
-  if (showBadge) {
-    const b = $("zoomBadge");
-    b.textContent = zoomState.s.toFixed(1) + "×";
-    b.style.opacity = 1;
-    clearTimeout(b._t);
-    b._t = setTimeout(() => (b.style.opacity = 0), 700);
+  function clampPan() {
+    const st = stageEl.getBoundingClientRect();
+    z.tx = Math.min(0, Math.max(st.width * (1 - z.s), z.tx));
+    z.ty = Math.min(0, Math.max(st.height * (1 - z.s), z.ty));
   }
-}
-function zoomAt(newS, cx, cy) {
-  newS = Math.min(10, Math.max(1, newS));
-  const px = (cx - zoomState.tx) / zoomState.s;
-  const py = (cy - zoomState.ty) / zoomState.s;
-  zoomState.s = newS;
-  zoomState.tx = cx - px * newS;
-  zoomState.ty = cy - py * newS;
-  renderZoom();
-}
+  function render(showBadge = true) {
+    clampPan();
+    targetEl.style.transform = `translate(${z.tx}px,${z.ty}px) scale(${z.s})`;
+    if (showBadge && badgeEl) {
+      badgeEl.textContent = z.s.toFixed(1) + "×";
+      badgeEl.style.opacity = 1;
+      clearTimeout(badgeEl._t);
+      badgeEl._t = setTimeout(() => (badgeEl.style.opacity = 0), 700);
+    }
+    z.onChange?.();
+  }
+  function zoomAt(newS, cx, cy) {
+    newS = Math.min(10, Math.max(1, newS));
+    const px = (cx - z.tx) / z.s, py = (cy - z.ty) / z.s;
+    z.s = newS; z.tx = cx - px * newS; z.ty = cy - py * newS;
+    render();
+  }
+  z.set = (s2, tx, ty) => { z.s = Math.min(10, Math.max(1, s2)); z.tx = tx; z.ty = ty; render(false); };
+  z.reset = (badge) => { z.s = 1; z.tx = 0; z.ty = 0; render(badge); };
 
-const stage = $("stage");
-function localPt(e) {
-  const r = stage.getBoundingClientRect();
-  return { x: e.clientX - r.left, y: e.clientY - r.top };
-}
-function startGesture() {
-  const pts = [...pointers.values()];
-  if (pts.length >= 2) {
-    const [a, b] = pts;
-    gesture = {
-      type: "pinch",
-      d0: Math.hypot(a.x - b.x, a.y - b.y) || 1,
-      m0: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
-      s0: zoomState.s, tx0: zoomState.tx, ty0: zoomState.ty
-    };
-  } else if (pts.length === 1) {
-    gesture = { type: "pan", p0: { ...pts[0] }, tx0: zoomState.tx, ty0: zoomState.ty };
-  } else gesture = null;
-}
-stage.addEventListener("pointerdown", (e) => {
-  stage.setPointerCapture(e.pointerId);
-  pointers.set(e.pointerId, localPt(e));
-  if (pointers.size === 1) moved = false;
-  startGesture();
-});
-stage.addEventListener("pointermove", (e) => {
-  if (!pointers.has(e.pointerId)) return;
-  pointers.set(e.pointerId, localPt(e));
-  if (!gesture) return;
-  const pts = [...pointers.values()];
-  if (gesture.type === "pinch" && pts.length >= 2) {
-    const [a, b] = pts;
-    const d = Math.hypot(a.x - b.x, a.y - b.y);
-    const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-    const s = Math.min(10, Math.max(1, gesture.s0 * (d / gesture.d0)));
-    const px = (gesture.m0.x - gesture.tx0) / gesture.s0;
-    const py = (gesture.m0.y - gesture.ty0) / gesture.s0;
-    zoomState.s = s;
-    zoomState.tx = m.x - px * s;
-    zoomState.ty = m.y - py * s;
-    moved = true;
-    renderZoom();
-  } else if (gesture.type === "pan" && pts.length === 1) {
-    const dx = pts[0].x - gesture.p0.x, dy = pts[0].y - gesture.p0.y;
-    if (Math.hypot(dx, dy) > 8) moved = true;
-    if (zoomState.s > 1) {
-      zoomState.tx = gesture.tx0 + dx;
-      zoomState.ty = gesture.ty0 + dy;
-      renderZoom(false);
-    }
+  const localPt = (e) => { const r = stageEl.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  function startGesture() {
+    const pts = [...pointers.values()];
+    if (pts.length >= 2) {
+      const [a, b] = pts;
+      gesture = { type: "pinch", d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, m0: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, s0: z.s, tx0: z.tx, ty0: z.ty };
+    } else if (pts.length === 1) {
+      gesture = { type: "pan", p0: { ...pts[0] }, tx0: z.tx, ty0: z.ty };
+    } else gesture = null;
   }
-});
-function endPointer(e) {
-  const pt = pointers.get(e.pointerId);
-  pointers.delete(e.pointerId);
-  if (pointers.size === 0 && !moved && pt) {
-    const now = Date.now();
-    if (now - lastTap < 300) {
-      // 더블탭: 2.5배 ↔ 원래대로
-      clearTimeout(tapTimer);
-      lastTap = 0;
-      if (zoomState.s > 1.05) { zoomState.s = 1; zoomState.tx = 0; zoomState.ty = 0; renderZoom(); }
-      else zoomAt(2.5, pt.x, pt.y);
-    } else {
-      lastTap = now;
-      // 한 번 탭: 버튼 숨기기/보이기
-      tapTimer = setTimeout(() => $("view").classList.toggle("hide-ui"), 300);
+  stageEl.addEventListener("pointerdown", (e) => {
+    stageEl.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, localPt(e));
+    if (pointers.size === 1) moved = false;
+    startGesture();
+  });
+  stageEl.addEventListener("pointermove", (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, localPt(e));
+    if (!gesture) return;
+    const pts = [...pointers.values()];
+    if (gesture.type === "pinch" && pts.length >= 2) {
+      moved = true;
+      if (!z.enabled) return;
+      const [a, b] = pts;
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const s2 = Math.min(10, Math.max(1, gesture.s0 * (d / gesture.d0)));
+      const px = (gesture.m0.x - gesture.tx0) / gesture.s0, py = (gesture.m0.y - gesture.ty0) / gesture.s0;
+      z.s = s2; z.tx = m.x - px * s2; z.ty = m.y - py * s2;
+      render();
+    } else if (gesture.type === "pan" && pts.length === 1) {
+      const dx = pts[0].x - gesture.p0.x, dy = pts[0].y - gesture.p0.y;
+      if (Math.hypot(dx, dy) > 8) moved = true;
+      if (z.enabled && z.s > 1) { z.tx = gesture.tx0 + dx; z.ty = gesture.ty0 + dy; render(false); }
     }
+  });
+  function endPointer(e) {
+    const pt = pointers.get(e.pointerId);
+    pointers.delete(e.pointerId);
+    if (pointers.size === 0 && !moved && pt) {
+      const now = Date.now();
+      if (now - lastTap < 300 && z.enabled) {
+        clearTimeout(tapTimer);                     // 두 번 탭: 2.5배 ↔ 원래대로
+        lastTap = 0;
+        if (z.s > 1.05) z.reset(); else zoomAt(2.5, pt.x, pt.y);
+      } else {
+        lastTap = now;
+        tapTimer = setTimeout(() => onTap?.(), 300);   // 한 번 탭: 버튼 숨기기/보이기
+      }
+    }
+    startGesture();
   }
-  startGesture();
+  stageEl.addEventListener("pointerup", endPointer);
+  stageEl.addEventListener("pointercancel", endPointer);
+  window.addEventListener("resize", () => render(false));
+  return z;
 }
-stage.addEventListener("pointerup", endPointer);
-stage.addEventListener("pointercancel", endPointer);
-window.addEventListener("resize", () => renderZoom(false));
+const viewZoom = makeZoomable($("stage"), $("remote"), $("zoomBadge"), () => $("view").classList.toggle("hide-ui"));
+const camZoom = makeZoomable($("camStage"), $("camVideo"), $("camZoomBadge"), () => $("cam").classList.toggle("hide-ui"));
+camZoom.onChange = () => updateCropUI();
 
 /* ---------- 움직임 감지 설정 시트 (카메라/뷰어 공용) ---------- */
 let sheetMode = null;
