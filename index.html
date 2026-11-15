@@ -59,8 +59,11 @@
 
   /* ---------- 카메라(아이패드) ---------- */
   #camVideo{width:100%;height:100%;object-fit:contain;background:#000}
-  #blackout{position:absolute;inset:0;background:#000;z-index:20;display:flex;align-items:flex-end;justify-content:center;
-    padding-bottom:40px;color:#222;font-size:13px}
+  #blackout{position:fixed;inset:0;background:#000;z-index:55;display:flex;align-items:center;justify-content:center;
+    touch-action:none;-webkit-touch-callout:none;cursor:none}
+  #blackHint{color:#555;font-size:15px;opacity:0;transition:opacity .4s;pointer-events:none;text-align:center;line-height:1.6}
+  #blackHint.show{opacity:1}
+  #blackHint.hold{color:var(--accent)}
 
   /* ---------- 뷰어(아이폰) ---------- */
   #stage{position:absolute;inset:0;touch-action:none;overflow:hidden}
@@ -178,7 +181,7 @@
     </select>
     <button id="camExit">나가기</button>
   </div>
-  <div id="blackout" hidden>화면을 탭하면 다시 켜져요 · 송출 중</div>
+  <div id="blackout" hidden><div id="blackHint">길게 눌러서 화면 켜기<br><small>송출·감지·기록은 계속되고 있어요</small></div></div>
 </section>
 
 <!-- ================= 뷰어 모드 (아이폰) ================= -->
@@ -248,6 +251,18 @@
     <div class="row"><span>시간</span>
       <span class="times"><input type="time" id="mQFrom"> ~ <input type="time" id="mQTo"></span>
     </div>
+
+    <div class="sec">🖤 아이패드 화면 (잠금 대신)</div>
+    <label class="row"><span>손 안 대면 자동으로 화면 끄기</span>
+      <select id="mAutoBlack">
+        <option value="0">안 함</option>
+        <option value="30">30초</option>
+        <option value="60">1분</option>
+        <option value="180">3분</option>
+      </select>
+    </label>
+    <button id="mBlackNow">🌙 지금 아이패드 화면 끄기</button>
+    <div class="hint">꺼진 화면은 길게 눌러야 켜져요(반려동물이 밟아도 OK). 밝기를 최저로 해두면 더 어두워져요.</div>
 
     <div class="sec">📼 자동 기록</div>
     <label class="row"><span>켜기</span><input type="checkbox" id="mRec"></label>
@@ -500,7 +515,8 @@ const motion = {
     {
       enabled: true, sens: "mid", cooldown: 60, topic: "",
       quiet: false, qFrom: "23:00", qTo: "07:00",
-      rec: false, rFrom: "00:00", rTo: "07:00", tlSec: 10, clips: true, clipSec: 30, keepDays: 3
+      rec: false, rFrom: "00:00", rTo: "07:00", tlSec: 10, clips: true, clipSec: 30, keepDays: 3,
+      autoBlack: 60
     },
     JSON.parse(localStorage.getItem("petcam_motion") || "{}")
   ),
@@ -523,6 +539,7 @@ function applyMotionCfg(cfg) {
   if ([5, 10, 30, 60].includes(+cfg.tlSec)) motion.cfg.tlSec = +cfg.tlSec;
   if ([15, 30, 60].includes(+cfg.clipSec)) motion.cfg.clipSec = +cfg.clipSec;
   if ([1, 3, 7].includes(+cfg.keepDays)) motion.cfg.keepDays = +cfg.keepDays;
+  if (cfg.autoBlack !== undefined && [0, 30, 60, 180].includes(+cfg.autoBlack)) motion.cfg.autoBlack = +cfg.autoBlack;
   saveMotionCfg();
   resetMotion();
   broadcastInfo();
@@ -884,8 +901,34 @@ const cam = {
   zoom: 1,
   peer: null, peerId: "",
   viewers: new Map(),   // 시청자 peerId -> { conn, call, videoSender, audioSender, connected }
-  wakeLock: null
+  wakeLock: null,
+  black: false, lastTouch: Date.now()
 };
+
+/* ---------- 화면 끄기 (잠금 화면 대용: 송출은 계속) ---------- */
+function setBlack(on) {
+  cam.black = !!on;
+  $("blackout").hidden = !on;
+  $("blackHint").className = "";
+  cam.lastTouch = Date.now();
+  broadcastInfo();
+}
+let holdTimer = null, hintTimer = null;
+function blackHint(cls) {
+  const h = $("blackHint");
+  h.className = "show " + (cls || "");
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => (h.className = ""), 2500);
+}
+$("blackout").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  blackHint();
+  clearTimeout(holdTimer);
+  holdTimer = setTimeout(() => { blackHint("hold"); setBlack(false); }, 1200);
+});
+["pointerup", "pointercancel", "pointerleave"].forEach((ev) =>
+  $("blackout").addEventListener(ev, () => clearTimeout(holdTimer)));
+$("blackout").addEventListener("contextmenu", (e) => e.preventDefault());
 
 function camSetStatus(text, state) {
   $("camStatus").textContent = text;
@@ -933,6 +976,7 @@ function camInfo() {
     quality: cam.quality,
     res: s.width && s.height ? `${s.width}×${s.height}` : "",
     zoom,
+    black: cam.black,
     motion: { ...motion.cfg, lastAt: motion.lastAt }
   };
 }
@@ -1017,6 +1061,8 @@ function handleCamMessage(m, conn) {
     restartVideo();
   } else if (m.t === "hello") {
     broadcastInfo();
+  } else if (m.t === "black") {
+    setBlack(!!m.v);
   } else if (m.t === "motionCfg" && m.cfg) {
     applyMotionCfg(m.cfg);
   } else if (m.t === "motionTest") {
@@ -1122,6 +1168,16 @@ async function startCamMode() {
   setInterval(recTick, 1000);
   updateRecPill();
 
+  // 손 안 대면 자동으로 화면 끄기
+  cam.lastTouch = Date.now();
+  document.addEventListener("pointerdown", () => (cam.lastTouch = Date.now()), { capture: true, passive: true });
+  setInterval(() => {
+    const sec = motion.cfg.autoBlack;
+    if (!sec || cam.black || $("cam").hidden) return;
+    if (!$("sheetBack").hidden || !$("records").hidden || !$("clipModal").hidden) return;
+    if (Date.now() - cam.lastTouch > sec * 1000) setBlack(true);
+  }, 1000);
+
   cam.peerId = await cameraPeerId(room);
   connectCamPeer();
 }
@@ -1145,8 +1201,7 @@ document.addEventListener("visibilitychange", async () => {
   if (cam.peer && cam.peer.disconnected && !cam.peer.destroyed) cam.peer.reconnect();
 });
 
-$("camBlack").onclick = () => { $("blackout").hidden = false; };
-$("blackout").onclick = () => { $("blackout").hidden = true; };
+$("camBlack").onclick = () => setBlack(true);
 $("camMotion").onclick = () => openSheet("cam");
 $("camRecords").onclick = () => openRecords(localRecords);
 $("camFlip").onclick = () => handleCamMessage({ t: "flip" });
@@ -1305,6 +1360,7 @@ function applyInfo(m) {
   if (m.motion) {
     $("vMotion").classList.toggle("on", !!m.motion.enabled);
     if (sheetMode === "view" && !$("sheetBack").hidden) fillSheet(m.motion);
+    else if (sheetMode === "view") updateBlackBtn();
   }
   if (m.quality) $("vQuality").value = m.quality;
   const wrap = $("camZoomWrap");
@@ -1473,6 +1529,8 @@ function fillSheet(cfg) {
   $("mClips").checked = cfg.clips !== false;
   $("mClipSec").value = String(cfg.clipSec || 30);
   $("mKeep").value = String(cfg.keepDays || 3);
+  $("mAutoBlack").value = String(cfg.autoBlack ?? 60);
+  updateBlackBtn();
   $("mLast").textContent = cfg.lastAt ? `마지막 감지: ${timeStr(cfg.lastAt)}` : "아직 감지된 움직임이 없어요";
 }
 function openSheet(mode) {
@@ -1488,12 +1546,13 @@ function sheetChanged() {
     enabled: $("mEnabled").checked, sens: $("mSens").value, cooldown: +$("mCooldown").value,
     quiet: $("mQuiet").checked, qFrom: $("mQFrom").value, qTo: $("mQTo").value,
     rec: $("mRec").checked, rFrom: $("mRFrom").value, rTo: $("mRTo").value,
-    tlSec: +$("mTl").value, clips: $("mClips").checked, clipSec: +$("mClipSec").value, keepDays: +$("mKeep").value
+    tlSec: +$("mTl").value, clips: $("mClips").checked, clipSec: +$("mClipSec").value, keepDays: +$("mKeep").value,
+    autoBlack: +$("mAutoBlack").value
   };
   if (sheetMode === "cam") { applyMotionCfg({ ...cfg, topic: $("mTopic").value }); recTick(); }
   else sendCtl({ t: "motionCfg", cfg });
 }
-["mEnabled", "mSens", "mCooldown", "mTopic", "mQuiet", "mQFrom", "mQTo", "mRec", "mRFrom", "mRTo", "mTl", "mClips", "mClipSec", "mKeep"].forEach((id) => $(id).addEventListener("change", sheetChanged));
+["mEnabled", "mSens", "mCooldown", "mTopic", "mQuiet", "mQFrom", "mQTo", "mRec", "mRFrom", "mRTo", "mTl", "mClips", "mClipSec", "mKeep", "mAutoBlack"].forEach((id) => $(id).addEventListener("change", sheetChanged));
 $("mTest").onclick = async () => {
   if (sheetMode === "cam") {
     toast("보내는 중…");
@@ -1512,6 +1571,14 @@ $("mCopy").onclick = () => {
   );
 };
 $("mClose").onclick = () => ($("sheetBack").hidden = true);
+function isBlackNow() { return sheetMode === "cam" ? cam.black : !!view.info?.black; }
+function updateBlackBtn() {
+  $("mBlackNow").textContent = isBlackNow() ? "☀️ 아이패드 화면 켜기" : "🌙 지금 아이패드 화면 끄기";
+}
+$("mBlackNow").onclick = () => {
+  if (sheetMode === "cam") { $("sheetBack").hidden = true; setBlack(true); }
+  else { sendCtl({ t: "black", v: !isBlackNow() }); toast(isBlackNow() ? "아이패드 화면을 켜는 중…" : "아이패드 화면을 끄는 중…"); }
+};
 $("sheetBack").addEventListener("click", (e) => { if (e.target.id === "sheetBack") $("sheetBack").hidden = true; });
 
 // 뷰어: 보고 있을 때 움직임 배너 + 알림음
