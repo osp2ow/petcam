@@ -128,6 +128,11 @@
   .clip .th{aspect-ratio:16/9;background:#000 center/cover no-repeat}
   .clip .meta{padding:8px 10px;font-size:13px}
   .clip .meta small{color:var(--sub)}
+  .tlctl{flex-wrap:wrap}
+  .tlctl button,.tlctl select,.bottombar button{white-space:nowrap}
+  .topbar{flex-wrap:wrap}
+  .rptl{display:flex;align-items:center;gap:8px;margin:12px 0 4px;font-size:12px;color:var(--sub)}
+  .rptl input{flex:1;accent-color:var(--accent);height:32px}
   #replayModal{position:fixed;inset:0;z-index:46;background:var(--bg);overflow-y:auto;
     padding:max(12px,env(safe-area-inset-top)) 14px max(20px,env(safe-area-inset-bottom))}
   #clipModal{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px}
@@ -180,12 +185,12 @@
     <span class="pill" id="camRoom"></span>
   </div>
   <div class="bottombar">
-    <button id="camFix" class="on" hidden>📌 이 구도로 고정</button>
-    <button id="camReframe" hidden>🔲 구도 다시 잡기</button>
-    <button id="camBlack">🌙 화면 끄기</button>
-    <button id="camMotion">⚙️ 설정</button>
-    <button id="camRecords">📼 기록</button>
-    <button id="camFlip">🔄 전/후면</button>
+    <button id="camFix" class="on" hidden>이 구도로 고정</button>
+    <button id="camReframe" hidden>구도 다시 잡기</button>
+    <button id="camBlack">화면 끄기</button>
+    <button id="camMotion">설정</button>
+    <button id="camRecords">기록</button>
+    <button id="camFlip">전/후면 전환</button>
     <select id="camQuality">
       <option value="720">720p</option>
       <option value="1080" selected>1080p</option>
@@ -213,20 +218,19 @@
 
 
   <div class="bottombar">
-    <button id="vMute">🔇 소리</button>
-    <button id="vShot">📸</button>
-    <button id="vRec">⏺ 녹화</button>
-    <button id="vMotion">⚙️</button>
-    <button id="vRecords">📼</button>
-    <button id="vReplay">⏪</button>
-    <button id="vFlip">🔄</button>
+    <button id="vMute">소리 켜기</button>
+    <button id="vShot">사진</button>
+    <button id="vRec">녹화</button>
+    <button id="vMotion">설정</button>
+    <button id="vRecords">기록</button>
+    <button id="vReplay" class="on">다시보기</button>
     <select id="vQuality">
       <option value="720">720p</option>
       <option value="1080">1080p</option>
       <option value="4k">4K</option>
     </select>
-    <button id="vReconnect">⟲</button>
-    <button id="vExit">✕</button>
+    <button id="vReconnect">재연결</button>
+    <button id="vExit">나가기</button>
   </div>
 </section>
 
@@ -271,7 +275,7 @@
         <option value="180">3분</option>
       </select>
     </label>
-    <button id="mBlackNow">🌙 지금 아이패드 화면 끄기</button>
+    <button id="mBlackNow">지금 아이패드 화면 끄기</button>
     <div class="hint">꺼진 화면은 탭하면 다시 켜져요. 송출·감지·기록은 계속돼요. 밝기를 최저로 해두면 더 어두워져요.</div>
 
     <div class="sec">📷 카메라</div>
@@ -286,9 +290,10 @@
         <option value="5">5분</option>
         <option value="10">10분</option>
         <option value="30">30분</option>
+        <option value="60">1시간</option>
       </select>
     </label>
-    <div class="hint">아이패드가 블랙박스처럼 최근 영상을 계속 덮어쓰며 보관해요. 아이폰 ⏪ 버튼으로 볼 수 있어요.</div>
+    <div class="hint">아이패드가 블랙박스처럼 최근 영상을 계속 덮어쓰며 보관해요. 아이폰 '다시보기' 버튼으로 볼 수 있어요. 아이패드 용량을 10분에 약 150MB, 1시간에 약 1GB 써요.</div>
 
     <div class="sec">📼 자동 기록</div>
     <label class="row"><span>켜기</span><input type="checkbox" id="mRec"></label>
@@ -324,7 +329,7 @@
     <label class="col"><span>ntfy 토픽 — 아이폰 ntfy 앱에서 이 이름을 구독하세요</span>
       <input type="text" id="mTopic" autocomplete="off" autocapitalize="off" spellcheck="false">
     </label>
-    <div class="btns"><button id="mTest">🔔 테스트 알림</button><button id="mCopy">토픽 복사</button></div>
+    <div class="btns"><button id="mTest">테스트 알림 보내기</button><button id="mCopy">토픽 복사</button></div>
     <div class="hint" id="mLast"></div>
     <button id="mClose" class="on">닫기</button>
   </div>
@@ -341,7 +346,7 @@
   <div id="rBody" hidden>
     <div class="tlbox"><img id="tlImg" alt=""><span class="pill" id="tlTime">-</span></div>
     <div class="tlctl">
-      <button id="tlPlay">▶</button>
+      <button id="tlPlay">재생</button>
       <div class="tltrack"><input type="range" id="tlRange" min="0" max="0" value="0"><div id="tlMarks"></div></div>
       <select id="tlSpeed">
         <option value="5">느리게</option>
@@ -349,20 +354,25 @@
         <option value="30">빠르게</option>
       </select>
     </div>
-    <div class="rsub"><b>움직임 클립 <span id="rClipCount"></span></b><button id="rDelete">🗑 이 기록 삭제</button></div>
+    <div class="rsub"><b>움직임 클립 <span id="rClipCount"></span></b><button id="rDelete">이 기록 삭제</button></div>
     <div class="clips" id="rClips"></div>
   </div>
 </section>
 <section id="replayModal" hidden>
-  <div class="rhead"><b>⏪ 최근 영상</b><span class="spacer"></span><button id="rpClose">닫기</button></div>
+  <div class="rhead"><b>최근 영상 다시보기</b><span class="spacer"></span><button id="rpClose">닫기</button></div>
   <div class="chips" id="rpRanges"></div>
   <div class="tlbox" id="rpStage"><div class="cropbox" id="rpBox"><video id="rpVideo" playsinline></video></div><span class="pill" id="rpTime">-</span></div>
+  <div class="rptl">
+    <span id="rpFrom">-</span>
+    <input type="range" id="rpRange" min="0" max="0" step="1" value="0">
+    <span id="rpTo">-</span>
+  </div>
   <div class="tlctl">
-    <button id="rpPrev">⏮</button><button id="rpPlay">⏸</button><button id="rpNext">⏭</button>
+    <button id="rpBack">10초 전</button><button id="rpPlay" class="on">일시정지</button><button id="rpFwd">10초 후</button>
     <select id="rpRate"><option value="1">1배속</option><option value="2">2배속</option><option value="4">4배속</option><option value="8">8배속</option></select>
     <span class="spacer"></span><button id="rpSave">저장</button>
   </div>
-  <div class="hint" id="rpHint">30초 단위 조각으로 이어서 재생돼요. 밖에서 LTE로 보면 조각마다 몇 초씩 불러올 수 있어요.</div>
+  <div class="hint" id="rpHint">아래 막대를 끌어서 원하는 시각으로 이동할 수 있어요. 영상은 30초 단위로 불러와서, 밖에서 LTE로 보면 이동할 때마다 몇 초씩 걸릴 수 있어요.</div>
 </section>
 <div id="clipModal" hidden>
   <video id="clipVideo" playsinline controls></video>
@@ -377,7 +387,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-15.14";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-16.15";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -580,7 +590,7 @@ function applyMotionCfg(cfg) {
   if ([15, 30, 60].includes(+cfg.clipSec)) motion.cfg.clipSec = +cfg.clipSec;
   if ([1, 3, 7].includes(+cfg.keepDays)) motion.cfg.keepDays = +cfg.keepDays;
   if (cfg.autoBlack !== undefined && [0, 30, 60, 180].includes(+cfg.autoBlack)) motion.cfg.autoBlack = +cfg.autoBlack;
-  if (cfg.replayMin !== undefined && [0, 5, 10, 30].includes(+cfg.replayMin)) motion.cfg.replayMin = +cfg.replayMin;
+  if (cfg.replayMin !== undefined && [0, 5, 10, 30, 60].includes(+cfg.replayMin)) motion.cfg.replayMin = +cfg.replayMin;
   let camChanged = false, focusChanged = false;
   if (typeof cfg.deviceId === "string" && cfg.deviceId !== motion.cfg.deviceId) { motion.cfg.deviceId = cfg.deviceId; camChanged = true; }
   if (typeof cfg.focusLock === "boolean" && cfg.focusLock !== motion.cfg.focusLock) { motion.cfg.focusLock = cfg.focusLock; focusChanged = true; }
@@ -1444,8 +1454,8 @@ document.addEventListener("visibilitychange", async () => {
 });
 
 $("camBlack").onclick = () => setBlack(true);
-$("camFix").onclick = () => applyCrop(viewToCrop(camZoom)).then(() => toast("📌 이 구도로 고정했어요. 아이폰 화면·움직임 감지·타임랩스가 이 구도로 바뀌어요."));
-$("camReframe").onclick = () => clearCrop(true).then(() => toast("손가락으로 구도를 다시 잡고 📌 고정을 눌러주세요. (두 번 탭하면 전체 화면)", null, null, 5000));
+$("camFix").onclick = () => applyCrop(viewToCrop(camZoom)).then(() => toast("이 구도로 고정했어요. 아이폰 화면·움직임 감지·타임랩스가 이 구도로 바뀌어요."));
+$("camReframe").onclick = () => clearCrop(true).then(() => toast("손가락으로 구도를 다시 잡고 '이 구도로 고정'을 눌러주세요. (두 번 탭하면 전체 화면)", null, null, 5000));
 $("camMotion").onclick = () => openSheet("cam");
 $("camRecords").onclick = () => openRecords(localRecords);
 $("camFlip").onclick = () => handleCamMessage({ t: "flip" });
@@ -1523,7 +1533,7 @@ function connectToCam() {
     else if (m.t === "score") {
       const el = $("vScore");
       el.hidden = false;
-      el.textContent = m.v < 0 ? "🐾 감지 꺼짐" : `🐾 ${(m.v * 100).toFixed(1)}%` + (m.at ? ` · 최근 ${timeStr(m.at)}` : "");
+      el.textContent = m.v < 0 ? "움직임 감지 꺼짐" : `움직임 ${(m.v * 100).toFixed(1)}%` + (m.at ? ` · 최근 감지 ${timeStr(m.at)}` : "");
     }
   });
   conn.on("close", () => { if (view.conn === conn) onLost(); });
@@ -1856,7 +1866,7 @@ $("mCopy").onclick = () => {
 $("mClose").onclick = () => ($("sheetBack").hidden = true);
 function isBlackNow() { return sheetMode === "cam" ? cam.black : !!view.info?.black; }
 function updateBlackBtn() {
-  $("mBlackNow").textContent = isBlackNow() ? "☀️ 아이패드 화면 켜기" : "🌙 지금 아이패드 화면 끄기";
+  $("mBlackNow").textContent = isBlackNow() ? "아이패드 화면 켜기" : "지금 아이패드 화면 끄기";
 }
 $("mBlackNow").onclick = () => {
   if (sheetMode === "cam") { $("sheetBack").hidden = true; setBlack(true); }
@@ -1943,7 +1953,7 @@ function fmtBytes(n) { return n > 1e9 ? (n / 1e9).toFixed(1) + "GB" : (n / 1e6).
 
 function resetPlayer() {
   R.playing = false;
-  $("tlPlay").textContent = "▶";
+  $("tlPlay").textContent = "재생";
   for (const u of R.cache.values()) URL.revokeObjectURL(u);
   R.cache.clear(); R.inflight.clear();
   $("tlImg").removeAttribute("src");
@@ -1965,7 +1975,7 @@ async function openRecords(api) {
   try { sessions = await api.listSessions(); }
   catch (e) { $("rEmpty").textContent = "불러오지 못했어요: " + e.message; return; }
   if (!sessions.length) {
-    $("rEmpty").textContent = "아직 기록이 없어요. ⚙️ 설정 → 📼 자동 기록을 켜고 시간을 정해주세요.";
+    $("rEmpty").textContent = "아직 기록이 없어요. 설정 → 자동 기록을 켜고 시간을 정해주세요.";
     return;
   }
   $("rEmpty").hidden = true;
@@ -2051,14 +2061,14 @@ async function playLoop() {
     if (wait > 0) await sleep(wait);
   }
   R.playing = false;
-  $("tlPlay").textContent = "▶";
+  $("tlPlay").textContent = "재생";
 }
 $("tlPlay").onclick = () => {
   if (R.playing) { R.playing = false; return; }
   if (!R.frames.length) return;
   if (R.idx >= R.frames.length - 1) showFrame(0);
   R.playing = true;
-  $("tlPlay").textContent = "⏸";
+  $("tlPlay").textContent = "일시정지";
   playLoop();
 };
 let scrubTimer = null;
@@ -2128,7 +2138,7 @@ $("vMute").onclick = () => {
   const v = $("remote");
   v.muted = !v.muted;
   v.play().catch(() => {});
-  $("vMute").textContent = v.muted ? "🔇 소리" : "🔊 소리";
+  $("vMute").textContent = v.muted ? "소리 켜기" : "소리 끄기";
   $("vMute").classList.toggle("on", !v.muted);
 };
 
@@ -2165,7 +2175,7 @@ $("vRec").onclick = () => {
   view.recorder.onstop = () => {
     clearInterval(view.recTimer);
     $("recPill").hidden = true;
-    $("vRec").textContent = "⏺ 녹화";
+    $("vRec").textContent = "녹화";
     $("vRec").classList.remove("rec");
     const type = view.recorder.mimeType || "video/mp4";
     const blob = new Blob(view.recChunks, { type });
@@ -2175,7 +2185,7 @@ $("vRec").onclick = () => {
   view.recorder.start(1000);
   view.recStart = Date.now();
   $("recPill").hidden = false;
-  $("vRec").textContent = "⏹ 정지";
+  $("vRec").textContent = "녹화 정지";
   $("vRec").classList.add("rec");
   view.recTimer = setInterval(() => {
     const s = Math.floor((Date.now() - view.recStart) / 1000);
@@ -2207,68 +2217,111 @@ async function rpGet(i) {
   }
   return p;
 }
-async function rpPlay(i) {
+// 타임라인 위치(초) ↔ 조각 번호
+function rpAt(sec) {
+  for (let k = RP.segs.length - 1; k >= 0; k--) if (sec >= RP.off[k]) return k;
+  return 0;
+}
+function rpPosLabel(sec) {
+  const k = rpAt(sec), seg = RP.segs[k];
+  return seg ? timeStr(seg.ts + (sec - RP.off[k]) * 1000) : "-";
+}
+async function rpPlay(i, offsetSec = 0) {
   if (i < 0 || i >= RP.segs.length) return;
   const tok = ++RP.token;
   RP.i = i;
   const seg = RP.segs[i];
-  $("rpTime").textContent = `${timeStr(seg.ts)} · ${i + 1}/${RP.segs.length} 불러오는 중…`;
+  $("rpTime").textContent = `${timeStr(seg.ts + offsetSec * 1000)} 불러오는 중…`;
   let x;
   try { x = await rpGet(i); } catch (e) { $("rpTime").textContent = "불러오기 실패: " + e.message; return; }
   if (tok !== RP.token || !x) return;
   RP.blob = x.blob;
   const v = $("rpVideo");
-  v.src = x.url;
+  if (v.src !== x.url) v.src = x.url;
+  const seek = () => { if (offsetSec > 0) { try { v.currentTime = Math.min(offsetSec, (v.duration || seg.dur) - 0.3); } catch (_) {} } };
+  if (v.readyState >= 1) seek(); else v.addEventListener("loadedmetadata", seek, { once: true });
   v.playbackRate = +$("rpRate").value;
-  v.play().catch(() => {});
-  $("rpPlay").textContent = "⏸";
-  $("rpTime").textContent = `${timeStr(seg.ts)} · ${i + 1}/${RP.segs.length}`;
+  if (!RP.paused) v.play().catch(() => {});
+  $("rpPlay").textContent = RP.paused ? "재생" : "일시정지";
+  $("rpTime").textContent = timeStr(seg.ts + offsetSec * 1000);
   rpGet(i + 1);   // 다음 조각 미리 받기
+}
+function rpSeek(sec) {
+  sec = Math.max(0, Math.min(RP.total - 0.5, sec));
+  const k = rpAt(sec), within = sec - RP.off[k];
+  const v = $("rpVideo");
+  if (k === RP.i && v.readyState >= 1) {
+    try { v.currentTime = within; } catch (_) {}
+    $("rpRange").value = sec;
+    $("rpTime").textContent = rpPosLabel(sec);
+  } else rpPlay(k, within);
 }
 $("rpVideo").addEventListener("playing", () => { $("rpVideo").playbackRate = +$("rpRate").value; });
 $("rpVideo").addEventListener("timeupdate", () => {
   const seg = RP.segs[RP.i], v = $("rpVideo");
-  if (seg && !v.paused) $("rpTime").textContent = `${timeStr(seg.ts + v.currentTime * 1000)} · ${RP.i + 1}/${RP.segs.length}`;
+  if (!seg || RP.scrubbing) return;
+  const pos = RP.off[RP.i] + v.currentTime;
+  $("rpRange").value = pos;
+  $("rpTime").textContent = timeStr(seg.ts + v.currentTime * 1000);
 });
 $("rpVideo").addEventListener("ended", () => {
   if (RP.i < RP.segs.length - 1) rpPlay(RP.i + 1);
-  else { $("rpTime").textContent = "끝까지 봤어요"; $("rpPlay").textContent = "▶"; }
+  else { $("rpTime").textContent = "끝까지 봤어요"; RP.paused = true; $("rpPlay").textContent = "재생"; }
+});
+// 타임라인 막대: 끄는 동안 시각 표시, 손을 떼면 그 위치로 이동
+$("rpRange").addEventListener("input", (e) => {
+  RP.scrubbing = true;
+  $("rpTime").textContent = rpPosLabel(+e.target.value);
+});
+$("rpRange").addEventListener("change", (e) => {
+  RP.scrubbing = false;
+  rpSeek(+e.target.value);
 });
 function rpStart(min) {
-  const from = Date.now() - min * 60000;
+  const from = min ? Date.now() - min * 60000 : 0;
   RP.segs = RP.all.filter((s) => s.ts + s.dur * 1000 >= from);
   [...$("rpRanges").children].forEach((b) => b.classList.toggle("on", +b.dataset.min === min));
   if (!RP.segs.length) { $("rpTime").textContent = "이 구간에 저장된 영상이 없어요"; return; }
+  RP.off = []; let acc = 0;
+  for (const sgm of RP.segs) { RP.off.push(acc); acc += sgm.dur; }
+  RP.total = acc;
+  const r = $("rpRange");
+  r.max = Math.max(1, Math.floor(acc)); r.value = 0;
+  $("rpFrom").textContent = timeStr(RP.segs[0].ts);
+  const last = RP.segs[RP.segs.length - 1];
+  $("rpTo").textContent = timeStr(last.ts + last.dur * 1000);
+  RP.paused = false;
   rpPlay(0);
 }
 async function openReplay() {
   if (!(view.conn && view.conn.open)) return toast("카메라에 연결된 뒤 볼 수 있어요");
-  if (view.info?.motion && !view.info.motion.replayMin) return toast("⚙️ 설정 → ⏪ 최근 영상 계속 보관을 먼저 켜주세요");
+  if (view.info?.motion && !view.info.motion.replayMin) return toast("설정 → 최근 영상 다시보기 → '최근 영상 계속 보관'을 먼저 켜주세요");
   $("replayModal").hidden = false;
   $("rpRanges").innerHTML = "";
   $("rpTime").textContent = "목록 불러오는 중…";
   try { RP.all = await remoteRecords.listReplay(true); }
   catch (e) { $("rpTime").textContent = "불러오지 못했어요: " + e.message; return; }
   if (!RP.all.length) { $("rpTime").textContent = "아직 저장된 영상이 없어요. 조금 뒤에 다시 열어주세요."; return; }
-  const span = Math.ceil((Date.now() - RP.all[0].ts) / 60000);
-  for (const min of [1, 5, 10, 30]) {
-    if (min > 1 && min - (min === 5 ? 4 : min === 10 ? 5 : 20) > span) continue;
+  const span = Math.max(1, Math.ceil((Date.now() - RP.all[0].ts) / 60000));
+  const add = (min, label) => {
     const b = document.createElement("button");
-    b.textContent = `최근 ${min}분`;
+    b.textContent = label;
     b.dataset.min = min;
     b.onclick = () => rpStart(min);
     $("rpRanges").appendChild(b);
-  }
-  rpStart(Math.min(5, Math.max(1, span)) >= 5 ? 5 : 1);
+  };
+  for (const min of [1, 5, 10, 30, 60]) if (min < span) add(min, min === 60 ? "최근 1시간" : `최근 ${min}분`);
+  add(0, `전체 (${span}분)`);
+  rpStart(span > 5 ? 5 : 0);
 }
 $("rpPlay").onclick = () => {
   const v = $("rpVideo");
   if (!v.src) return;
-  if (v.paused) { v.play().catch(() => {}); $("rpPlay").textContent = "⏸"; }
-  else { v.pause(); $("rpPlay").textContent = "▶"; }
+  if (v.paused) { RP.paused = false; v.play().catch(() => {}); $("rpPlay").textContent = "일시정지"; }
+  else { RP.paused = true; v.pause(); $("rpPlay").textContent = "재생"; }
 };
-$("rpPrev").onclick = () => rpPlay(RP.i - 1);
-$("rpNext").onclick = () => rpPlay(RP.i + 1);
+$("rpBack").onclick = () => rpSeek(+$("rpRange").value - 10);
+$("rpFwd").onclick = () => rpSeek(+$("rpRange").value + 10);
 $("rpRate").onchange = () => { $("rpVideo").playbackRate = +$("rpRate").value; };
 $("rpSave").onclick = () => {
   if (!RP.blob) return;
@@ -2281,7 +2334,6 @@ $("rpClose").onclick = () => {
   RP.cache.clear(); RP.blob = null;
   $("replayModal").hidden = true;
 };
-$("vFlip").onclick = () => sendCtl({ t: "flip" });
 $("vQuality").onchange = (e) => {
   sendCtl({ t: "quality", v: e.target.value });
   toast(`${QUALITY[e.target.value].label}로 변경 중…`);
