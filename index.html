@@ -1,0 +1,1271 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="펫캠">
+<title>펫캠</title>
+<style>
+  :root{
+    --bg:#0b0b0d; --panel:rgba(20,20,24,.72); --line:rgba(255,255,255,.12);
+    --text:#f2f2f4; --sub:#9a9aa3; --accent:#ffb340; --red:#ff4d4f; --green:#3ddc84;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",sans-serif;
+    overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+  [hidden]{display:none!important}
+  button,select,input{font:inherit;color:inherit}
+  button{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:10px 14px;cursor:pointer;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+  button:active{transform:scale(.96)}
+  button.on{background:var(--accent);color:#111;border-color:var(--accent)}
+  button.rec{background:var(--red);border-color:var(--red);color:#fff}
+  select{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px 12px;-webkit-appearance:none;appearance:none}
+
+  /* ---------- 홈 ---------- */
+  #home{min-height:100%;display:flex;flex-direction:column;justify-content:center;gap:18px;
+    padding:max(24px,env(safe-area-inset-top)) 24px max(24px,env(safe-area-inset-bottom));max-width:440px;margin:0 auto}
+  #home h1{margin:0 0 4px;font-size:34px;letter-spacing:-.5px}
+  #home p.lead{margin:0 0 10px;color:var(--sub);line-height:1.5}
+  .field{display:flex;flex-direction:column;gap:8px}
+  .field label{color:var(--sub);font-size:14px}
+  .field input{background:#17171b;border:1px solid var(--line);border-radius:14px;padding:14px;font-size:20px;
+    letter-spacing:2px;-webkit-user-select:text;user-select:text}
+  .big{padding:18px;font-size:18px;border-radius:18px;text-align:left;display:flex;align-items:center;gap:14px}
+  .big b{display:block;font-size:18px}
+  .big small{color:var(--sub);font-size:13px}
+  .big .ico{font-size:28px}
+  .hint{color:var(--sub);font-size:13px;line-height:1.6}
+  .warn{background:#2a1f0b;border:1px solid #5a4214;color:#ffd68a;border-radius:14px;padding:12px 14px;font-size:14px;line-height:1.5}
+
+  /* ---------- 공통 화면 ---------- */
+  .screen{position:fixed;inset:0;background:#000;overflow:hidden}
+  .topbar,.bottombar{position:absolute;left:0;right:0;display:flex;gap:8px;align-items:center;
+    padding:10px 12px;z-index:5;transition:opacity .25s}
+  .topbar{top:0;padding-top:max(10px,env(safe-area-inset-top));
+    background:linear-gradient(rgba(0,0,0,.6),transparent)}
+  .bottombar{bottom:0;padding-bottom:max(12px,env(safe-area-inset-bottom));flex-wrap:wrap;justify-content:center;
+    background:linear-gradient(transparent,rgba(0,0,0,.7))}
+  .hide-ui .topbar,.hide-ui .bottombar,.hide-ui .zoomwrap{opacity:0;pointer-events:none}
+  .pill{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:13px;
+    display:inline-flex;align-items:center;gap:6px;white-space:nowrap;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--sub)}
+  .dot.ok{background:var(--green)} .dot.wait{background:var(--accent)} .dot.bad{background:var(--red)}
+  .spacer{flex:1}
+
+  /* ---------- 카메라(아이패드) ---------- */
+  #camVideo{width:100%;height:100%;object-fit:contain;background:#000}
+  #blackout{position:absolute;inset:0;background:#000;z-index:20;display:flex;align-items:flex-end;justify-content:center;
+    padding-bottom:40px;color:#222;font-size:13px}
+
+  /* ---------- 뷰어(아이폰) ---------- */
+  #stage{position:absolute;inset:0;touch-action:none;overflow:hidden}
+  #remote{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;
+    transform-origin:0 0;will-change:transform;background:#000}
+  #zoomBadge{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:28px;font-weight:700;
+    background:rgba(0,0,0,.5);padding:8px 16px;border-radius:14px;z-index:6;pointer-events:none;opacity:0;transition:opacity .3s}
+  .zoomwrap{position:absolute;right:10px;top:50%;transform:translateY(-50%);z-index:5;display:flex;flex-direction:column;
+    align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:12px 8px;transition:opacity .25s;
+    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+  .zoomwrap span{font-size:12px;color:var(--sub)}
+  .zoomwrap input[type=range]{writing-mode:vertical-lr;direction:rtl;width:28px;height:180px;accent-color:var(--accent)}
+  #recTime{color:var(--red);font-weight:700}
+  #toast{position:fixed;left:50%;bottom:calc(110px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:30;
+    background:rgba(30,30,34,.95);border:1px solid var(--line);border-radius:16px;padding:12px 14px;display:flex;gap:10px;
+    align-items:center;font-size:14px;max-width:92vw}
+  #toast button{padding:8px 12px}
+  #overlayMsg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+    color:var(--sub);text-align:center;padding:24px;z-index:4;pointer-events:none;line-height:1.6}
+  #overlayMsg .spin{width:34px;height:34px;border:3px solid #333;border-top-color:var(--accent);border-radius:50%;animation:sp 1s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  /* ---------- 움직임 감지 ---------- */
+  #sheetBack{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:40;display:flex;align-items:flex-end;justify-content:center}
+  .sheet{width:100%;max-width:480px;background:#16161a;border:1px solid var(--line);border-radius:22px 22px 0 0;
+    padding:20px 18px max(18px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:14px}
+  .sheet h3{margin:0;font-size:19px}
+  .sheet .row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .sheet .col{display:flex;flex-direction:column;gap:6px}
+  .sheet .col span{color:var(--sub);font-size:13px}
+  .sheet input[type=text]{background:#0f0f12;border:1px solid var(--line);border-radius:12px;padding:12px;font-size:15px;
+    -webkit-user-select:text;user-select:text}
+  .sheet input[type=checkbox]{width:24px;height:24px;accent-color:var(--accent)}
+  .sheet .btns{display:flex;gap:8px}
+  .sheet .btns button{flex:1}
+  #motionBanner{position:fixed;left:50%;top:calc(64px + env(safe-area-inset-top));transform:translateX(-50%);z-index:35;
+    background:rgba(255,179,64,.95);color:#111;font-weight:700;border-radius:16px;padding:12px 18px;font-size:16px;
+    box-shadow:0 6px 24px rgba(0,0,0,.4);white-space:nowrap}
+</style>
+</head>
+<body>
+
+<!-- ================= 홈 ================= -->
+<section id="home">
+  <div>
+    <h1>🐾 펫캠</h1>
+    <p class="lead">아이패드를 카메라로, 아이폰으로 실시간 시청.</p>
+  </div>
+  <div id="boot" class="warn">
+    ⚠️ 이 문구가 계속 보이면 스크립트가 실행되지 않는 환경이에요(파일 미리보기 등).
+    GitHub Pages 같은 <b>https 주소</b>로 열어주세요.
+  </div>
+  <div id="msg" class="warn" hidden></div>
+  <div class="field">
+    <label for="roomInput">방 코드 (두 기기에 같은 코드 입력, 비밀번호 역할)</label>
+    <input id="roomInput" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="32">
+  </div>
+  <button class="big" id="goCam"><span class="ico">📷</span><span><b>카메라로 쓰기</b><small>아이패드 — 화면 켜둔 채로 거치</small></span></button>
+  <button class="big" id="goView"><span class="ico">📱</span><span><b>보기</b><small>아이폰 — 밖에서도 접속 가능</small></span></button>
+  <div class="hint">
+    팁: 각 기기에서 해당 모드로 들어간 뒤 Safari 공유 → <b>홈 화면에 추가</b>하면 다음부턴 바로 그 모드로 열려요.
+  </div>
+</section>
+
+<!-- ================= 카메라 모드 (아이패드) ================= -->
+<section id="cam" class="screen" hidden>
+  <video id="camVideo" playsinline autoplay muted></video>
+  <div class="topbar">
+    <span class="pill"><span class="dot wait" id="camDot"></span><span id="camStatus">준비 중</span></span>
+    <span class="pill">👀 <span id="viewerCount">0</span></span>
+    <span class="pill" id="camRes">-</span>
+    <span class="pill" id="motionPill">🐾 -</span>
+    <span class="spacer"></span>
+    <span class="pill" id="camRoom"></span>
+  </div>
+  <div class="bottombar">
+    <button id="camBlack">🌙 화면 끄기</button>
+    <button id="camMotion">🐾 감지 설정</button>
+    <button id="camFlip">🔄 전/후면</button>
+    <select id="camQuality">
+      <option value="720">720p</option>
+      <option value="1080" selected>1080p</option>
+      <option value="4k">4K</option>
+    </select>
+    <button id="camExit">나가기</button>
+  </div>
+  <div id="blackout" hidden>화면을 탭하면 다시 켜져요 · 송출 중</div>
+</section>
+
+<!-- ================= 뷰어 모드 (아이폰) ================= -->
+<section id="view" class="screen" hidden>
+  <div id="stage"><video id="remote" playsinline autoplay muted></video></div>
+  <div id="overlayMsg"><div class="spin"></div><div id="overlayText">카메라에 연결 중…</div></div>
+  <div id="zoomBadge">1.0×</div>
+
+  <div class="topbar">
+    <span class="pill"><span class="dot wait" id="viewDot"></span><span id="viewStatus">연결 중</span></span>
+    <span class="pill" id="stats">-</span>
+    <span class="spacer"></span>
+    <span class="pill" id="recPill" hidden>● <span id="recTime">00:00</span></span>
+  </div>
+
+  <div class="zoomwrap" id="camZoomWrap" hidden>
+    <span>카메라</span>
+    <input type="range" id="camZoom" min="1" max="5" step="0.1" value="1">
+    <span id="camZoomVal">1.0×</span>
+  </div>
+
+  <div class="bottombar">
+    <button id="vMute">🔇 소리</button>
+    <button id="vShot">📸</button>
+    <button id="vRec">⏺ 녹화</button>
+    <button id="vMotion">🐾</button>
+    <button id="vFlip">🔄</button>
+    <select id="vQuality">
+      <option value="720">720p</option>
+      <option value="1080">1080p</option>
+      <option value="4k">4K</option>
+    </select>
+    <button id="vReconnect">⟲</button>
+    <button id="vExit">✕</button>
+  </div>
+</section>
+
+<div id="toast" hidden></div>
+<div id="motionBanner" hidden></div>
+
+<div id="sheetBack" hidden>
+  <div class="sheet" id="sheet">
+    <h3>🐾 움직임 감지</h3>
+    <label class="row"><span>감지 켜기</span><input type="checkbox" id="mEnabled"></label>
+    <label class="row"><span>민감도</span>
+      <select id="mSens">
+        <option value="low">낮음 (큰 움직임만)</option>
+        <option value="mid">보통</option>
+        <option value="high">높음 (작은 움직임도)</option>
+      </select>
+    </label>
+    <label class="row"><span>알림 간격</span>
+      <select id="mCooldown">
+        <option value="30">30초</option>
+        <option value="60">1분</option>
+        <option value="180">3분</option>
+        <option value="300">5분</option>
+        <option value="600">10분</option>
+      </select>
+    </label>
+    <label class="col"><span>ntfy 토픽 — 아이폰 ntfy 앱에서 이 이름을 구독하세요</span>
+      <input type="text" id="mTopic" autocomplete="off" autocapitalize="off" spellcheck="false">
+    </label>
+    <div class="btns"><button id="mTest">🔔 테스트 알림</button><button id="mCopy">토픽 복사</button></div>
+    <div class="hint" id="mLast"></div>
+    <button id="mClose" class="on">닫기</button>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   펫캠 — 설정 없이 GitHub Pages에 올리기만 하면 되는 버전
+   · 영상 연결 중계: PeerJS 무료 공개 서버 (TURN 중계 포함)
+   · 아이폰 알림: ntfy.sh (무료, ntfy 앱으로 수신)
+   ===================================================================== */
+"use strict";
+
+const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
+// 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
+const PEER_OPTIONS = {};
+
+// 화질 프리셋: 해상도 + 최대 비트레이트(bps)
+const QUALITY = {
+  "720":  { w: 1280, h: 720,  br: 3_000_000,  label: "720p" },
+  "1080": { w: 1920, h: 1080, br: 8_000_000,  label: "1080p" },
+  "4k":   { w: 3840, h: 2160, br: 20_000_000, label: "4K" }
+};
+
+const $ = (id) => document.getElementById(id);
+$("boot").hidden = true;   // 여기까지 왔으면 스크립트가 실행되는 환경
+
+/* =====================================================================
+   공통 유틸
+   ===================================================================== */
+let toastTimer = null;
+function toast(msg, actionLabel, action, ms = 3500) {
+  const el = $("toast");
+  el.innerHTML = "";
+  const span = document.createElement("span");
+  span.textContent = msg;
+  el.appendChild(span);
+  if (actionLabel) {
+    const b = document.createElement("button");
+    b.textContent = actionLabel;
+    b.className = "on";
+    b.onclick = () => { el.hidden = true; action(); };
+    el.appendChild(b);
+  }
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  if (ms) toastTimer = setTimeout(() => (el.hidden = true), ms);
+}
+
+// 경고창(alert)은 미리보기에서 막힐 수 있어서 화면에 직접 표시
+function notice(text) {
+  if (!$("home").hidden) {
+    const m = $("msg");
+    m.textContent = text;
+    m.hidden = false;
+    m.scrollIntoView({ block: "center", behavior: "smooth" });
+  } else {
+    toast(text, null, null, 8000);
+  }
+}
+window.addEventListener("error", (e) => notice("오류: " + (e.message || e.error)));
+window.addEventListener("unhandledrejection", (e) => notice("오류: " + (e.reason?.message || e.reason)));
+
+function randomCode(n = 10) {
+  const c = "abcdefghjkmnpqrstuvwxyz23456789";
+  let s = "";
+  for (const x of crypto.getRandomValues(new Uint8Array(n))) s += c[x % c.length];
+  return s;
+}
+
+function stamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+function timeStr(t) {
+  return new Date(t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+async function saveBlob(blob, filename) {
+  const file = new File([blob], filename, { type: blob.type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); return; }
+    catch (e) { if (e.name === "AbortError") return; }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    if (window.Peer) return resolve();
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error("연결 라이브러리(PeerJS)를 불러오지 못했어요. 인터넷 연결을 확인해주세요."));
+    document.head.appendChild(s);
+  });
+}
+
+function envProblem() {
+  if (!window.isSecureContext) return "https 주소에서만 카메라를 쓸 수 있어요. GitHub Pages 주소로 열어주세요.";
+  if (!navigator.mediaDevices?.getUserMedia) return "이 화면(파일 미리보기 등)에서는 카메라/영상 기능을 쓸 수 없어요. Safari에서 GitHub Pages 주소로 열어주세요.";
+  if (!window.RTCPeerConnection) return "이 브라우저는 실시간 영상(WebRTC)을 지원하지 않아요. Safari로 열어주세요.";
+  return null;
+}
+
+// 방 코드 → 카메라의 고유 연결 ID (방 코드 자체는 서버에 그대로 보내지 않음)
+async function cameraPeerId(roomCode) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("petcam:" + roomCode));
+  return "petcam-" + [...new Uint8Array(buf)].map((x) => x.toString(16).padStart(2, "0")).join("").slice(0, 32);
+}
+
+// 영상 코덱을 H.264 우선으로 (아이폰/아이패드 하드웨어 코덱 → 고화질·저발열)
+function preferH264(sdp) {
+  const lines = sdp.split("\r\n");
+  const mIdx = lines.findIndex((l) => l.startsWith("m=video"));
+  if (mIdx < 0) return sdp;
+  const h264 = [];
+  for (const l of lines) {
+    const m = l.match(/^a=rtpmap:(\d+) H264\/90000/i);
+    if (m) h264.push(m[1]);
+  }
+  if (!h264.length) return sdp;
+  const parts = lines[mIdx].split(" ");
+  const head = parts.slice(0, 3), pts = parts.slice(3);
+  lines[mIdx] = [...head, ...h264.filter((p) => pts.includes(p)), ...pts.filter((p) => !h264.includes(p))].join(" ");
+  return lines.join("\r\n");
+}
+
+function whenPC(call, cb, tries = 0) {
+  if (call.peerConnection) return cb(call.peerConnection);
+  if (tries < 50) setTimeout(() => whenPC(call, cb, tries + 1), 100);
+}
+
+const NET_ERRORS = ["network", "server-error", "socket-error", "socket-closed", "unavailable-id"];
+
+/* =====================================================================
+   라우팅 (홈 / 카메라 / 뷰어)
+   ===================================================================== */
+const params = new URLSearchParams(location.search);
+let room = params.get("room") || localStorage.getItem("petcam_room") || randomCode();
+$("roomInput").value = room;
+
+function readRoom() {
+  const v = $("roomInput").value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  if (v.length < 6) { notice("방 코드는 6자 이상(영문/숫자)으로 해주세요. 길수록 안전해요."); return null; }
+  room = v;
+  localStorage.setItem("petcam_room", room);
+  return room;
+}
+
+async function go(mode) {
+  $("msg").hidden = true;
+  const env = envProblem();
+  if (env) return notice(env);
+  if (!readRoom()) return;
+  const btn = $(mode === "cam" ? "goCam" : "goView");
+  btn.disabled = true;
+  try { await loadScript(PEERJS_URL); }
+  catch (e) { btn.disabled = false; return notice(e.message); }
+  btn.disabled = false;
+  history.replaceState(null, "", `?mode=${mode}&room=${encodeURIComponent(room)}`);
+  $("home").hidden = true;
+  if (mode === "cam") startCamMode();
+  else startViewMode();
+}
+
+$("goCam").onclick = () => go("cam");
+$("goView").onclick = () => go("view");
+const exitToHome = () => { location.href = location.pathname; };
+
+/* =====================================================================
+   움직임 감지 (아이패드에서 실행) + ntfy 푸시 알림
+   ===================================================================== */
+// 민감도: 화면에서 "변한 픽셀 비율"이 이 값을 넘으면 움직임으로 판단
+const SENS = { high: 0.003, mid: 0.008, low: 0.02 };
+const motion = {
+  cfg: Object.assign(
+    { enabled: true, sens: "mid", cooldown: 60, topic: "" },
+    JSON.parse(localStorage.getItem("petcam_motion") || "{}")
+  ),
+  canvas: document.createElement("canvas"),
+  ctx: null, bg: null, w: 0, h: 0,
+  hits: 0, score: 0,
+  lastAt: 0, lastAlert: 0, lastBroadcast: 0, ignoreUntil: 0
+};
+function saveMotionCfg() { localStorage.setItem("petcam_motion", JSON.stringify(motion.cfg)); }
+function resetMotion(ms = 2500) { motion.bg = null; motion.hits = 0; motion.ignoreUntil = Date.now() + ms; }
+
+function applyMotionCfg(cfg) {
+  if (typeof cfg.enabled === "boolean") motion.cfg.enabled = cfg.enabled;
+  if (SENS[cfg.sens]) motion.cfg.sens = cfg.sens;
+  if (+cfg.cooldown > 0) motion.cfg.cooldown = +cfg.cooldown;
+  if (typeof cfg.topic === "string" && cfg.topic.trim()) motion.cfg.topic = cfg.topic.trim().replace(/[^A-Za-z0-9_-]/g, "");
+  saveMotionCfg();
+  resetMotion();
+  broadcastInfo();
+  updateMotionPill();
+}
+
+function updateMotionPill() {
+  const el = $("motionPill");
+  if (!motion.cfg.enabled) { el.textContent = "🐾 감지 꺼짐"; return; }
+  const last = motion.lastAt ? ` · 최근 ${timeStr(motion.lastAt)}` : "";
+  el.textContent = `🐾 ${(motion.score * 100).toFixed(1)}%${last}`;
+}
+
+function motionTick() {
+  const v = $("camVideo");
+  if (!motion.cfg.enabled || !v.videoWidth || document.visibilityState !== "visible") {
+    motion.score = 0; updateMotionPill(); return;
+  }
+  // 작은 크기(160px 폭)로 줄여서 흑백 비교 → 노이즈도 줄고 가벼움
+  const w = 160, h = Math.max(1, Math.round(160 * v.videoHeight / v.videoWidth));
+  if (w !== motion.w || h !== motion.h) {
+    motion.canvas.width = w; motion.canvas.height = h;
+    motion.w = w; motion.h = h; motion.bg = null; motion.ctx = null;
+  }
+  const ctx = motion.ctx || (motion.ctx = motion.canvas.getContext("2d", { willReadFrequently: true }));
+  ctx.drawImage(v, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h).data;
+  const n = w * h;
+  const g = new Float32Array(n);
+  let sum = 0;
+  for (let i = 0, j = 0; i < n; i++, j += 4) {
+    const y = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
+    g[i] = y; sum += y;
+  }
+  if (!motion.bg) { motion.bg = g; return; }
+
+  let bgSum = 0;
+  for (let i = 0; i < n; i++) bgSum += motion.bg[i];
+  const off = sum / n - bgSum / n;           // 화면 전체 밝기 변화(자동 노출) 보정
+  if (Math.abs(off) > 35) {                   // 불 켜기/끄기 같은 급격한 조명 변화는 무시
+    motion.bg = g; motion.hits = 0; return;
+  }
+  let changed = 0;
+  for (let i = 0; i < n; i++) {
+    if (Math.abs(g[i] - motion.bg[i] - off) > 24) changed++;
+    motion.bg[i] = motion.bg[i] * 0.85 + g[i] * 0.15;   // 배경을 천천히 갱신
+  }
+  motion.score = changed / n;
+  updateMotionPill();
+
+  if (Date.now() < motion.ignoreUntil) return;
+  if (motion.score > SENS[motion.cfg.sens]) motion.hits++;
+  else motion.hits = 0;
+  if (motion.hits >= 2) {                      // 연속 2번(약 0.8초) 이상일 때만
+    motion.hits = 0;
+    triggerMotion(motion.score);
+  }
+}
+
+function snapshotBlob(maxW = 1280) {
+  const v = $("camVideo");
+  if (!v.videoWidth) return Promise.resolve(null);
+  const k = Math.min(1, maxW / v.videoWidth);
+  const c = document.createElement("canvas");
+  c.width = Math.round(v.videoWidth * k);
+  c.height = Math.round(v.videoHeight * k);
+  c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+  return new Promise((r) => c.toBlob(r, "image/jpeg", 0.82));
+}
+
+function viewerUrl() {
+  return `${location.origin}${location.pathname}?mode=view&room=${encodeURIComponent(room)}`;
+}
+
+async function sendNtfy(title, message, blob) {
+  const topic = (motion.cfg.topic || "").trim();
+  if (!topic) return false;
+  const q = new URLSearchParams({ title, tags: "paw_prints", priority: "4", click: viewerUrl() });
+  let opts;
+  if (blob) {
+    q.set("message", message);
+    q.set("filename", `petcam_${stamp()}.jpg`);
+    opts = { method: "PUT", body: blob };
+  } else {
+    opts = { method: "POST", body: message };
+  }
+  try {
+    const r = await fetch(`https://ntfy.sh/${encodeURIComponent(topic)}?${q}`, opts);
+    return r.ok;
+  } catch (e) {
+    console.warn("ntfy", e);
+    return false;
+  }
+}
+
+async function sendTestAlert() {
+  const blob = await snapshotBlob();
+  return sendNtfy("🐾 펫캠 테스트", "알림이 잘 오고 있어요! 탭하면 실시간 화면이 열려요.", blob);
+}
+
+async function triggerMotion(score) {
+  const now = Date.now();
+  motion.lastAt = now;
+  updateMotionPill();
+  const watching = [...cam.viewers.values()].some((v) => v.conn.open);
+  if (watching && now - motion.lastBroadcast > 10_000) {     // 보고 있는 아이폰에 배너 (10초에 한 번)
+    motion.lastBroadcast = now;
+    sendAll({ t: "motion", at: now, score });
+    broadcastInfo();
+  }
+  if (now - motion.lastAlert < motion.cfg.cooldown * 1000) return;
+  motion.lastAlert = now;
+  const blob = await snapshotBlob();
+  sendNtfy("🐾 움직임 감지", `${timeStr(now)} · 화면 변화 ${(score * 100).toFixed(1)}%`, blob);
+}
+
+/* =====================================================================
+   카메라 모드 (아이패드)
+   ===================================================================== */
+const cam = {
+  stream: null,
+  facing: localStorage.getItem("petcam_facing") || "environment",
+  quality: localStorage.getItem("petcam_quality") || "1080",
+  zoom: 1,
+  peer: null, peerId: "",
+  viewers: new Map(),   // 시청자 peerId -> { conn, call, videoSender, audioSender, connected }
+  wakeLock: null
+};
+
+function camSetStatus(text, state) {
+  $("camStatus").textContent = text;
+  $("camDot").className = "dot " + state;
+}
+function camIdleStatus() {
+  const n = [...cam.viewers.values()].filter((v) => v.connected).length;
+  if (n) camSetStatus("송출 중", "ok");
+  else camSetStatus("대기 중 (시청자 없음)", "wait");
+}
+
+function videoConstraints() {
+  const q = QUALITY[cam.quality];
+  return { facingMode: cam.facing, width: { ideal: q.w }, height: { ideal: q.h }, frameRate: { ideal: 30 } };
+}
+
+async function openCamera() {
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      video: videoConstraints(),
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    });
+  } catch (e) {
+    if (e.name === "NotAllowedError") throw e;
+    // 마이크만 문제면 영상만
+    return await navigator.mediaDevices.getUserMedia({ video: videoConstraints(), audio: false });
+  }
+}
+
+function camVideoTrack() { return cam.stream?.getVideoTracks()[0] || null; }
+
+function camInfo() {
+  const t = camVideoTrack();
+  const s = t?.getSettings?.() || {};
+  let zoom = null;
+  try {
+    const caps = t?.getCapabilities?.();
+    if (caps && caps.zoom && caps.zoom.max > caps.zoom.min) {
+      zoom = { min: caps.zoom.min, max: caps.zoom.max, step: caps.zoom.step || 0.1, cur: s.zoom ?? cam.zoom };
+    }
+  } catch (_) {}
+  return {
+    t: "info",
+    facing: cam.facing,
+    quality: cam.quality,
+    res: s.width && s.height ? `${s.width}×${s.height}` : "",
+    zoom,
+    motion: { ...motion.cfg, lastAt: motion.lastAt }
+  };
+}
+
+function updateCamHud() {
+  const info = camInfo();
+  const fps = Math.round(camVideoTrack()?.getSettings?.().frameRate || 0);
+  $("camRes").textContent = (info.res || "-") + (fps ? ` · ${fps}fps` : "");
+  $("viewerCount").textContent = [...cam.viewers.values()].filter((v) => v.connected).length;
+  $("camQuality").value = cam.quality;
+}
+
+function sendAll(obj) {
+  for (const v of cam.viewers.values()) {
+    if (v.conn.open) { try { v.conn.send(obj); } catch (_) {} }
+  }
+}
+function broadcastInfo() {
+  sendAll(camInfo());
+  updateCamHud();
+}
+
+async function applyBitrate(sender) {
+  if (!sender) return;
+  try {
+    const p = sender.getParameters();
+    if (!p.encodings || !p.encodings.length) p.encodings = [{}];
+    p.encodings[0].maxBitrate = QUALITY[cam.quality].br;
+    p.encodings[0].maxFramerate = 30;
+    p.encodings[0].scaleResolutionDownBy = 1;
+    try { p.degradationPreference = "maintain-resolution"; } catch (_) {}
+    await sender.setParameters(p);
+  } catch (e) { console.warn("bitrate", e); }
+}
+
+async function applyZoom(v) {
+  const t = camVideoTrack();
+  if (!t) return;
+  try {
+    await t.applyConstraints({ advanced: [{ zoom: v }] });
+    cam.zoom = v;
+    resetMotion();
+  } catch (e) { console.warn("zoom", e); }
+}
+
+// 카메라 전환/화질 변경 시 비디오 트랙만 새로 열어서 모든 시청자에게 교체
+async function restartVideo() {
+  const old = camVideoTrack();
+  if (old) { old.stop(); cam.stream.removeTrack(old); }
+  let ns;
+  try {
+    ns = await navigator.mediaDevices.getUserMedia({ video: videoConstraints(), audio: false });
+  } catch (e) {
+    camSetStatus("카메라 열기 실패", "bad");
+    return;
+  }
+  const nt = ns.getVideoTracks()[0];
+  cam.stream.addTrack(nt);
+  $("camVideo").srcObject = cam.stream;
+  for (const v of cam.viewers.values()) {
+    if (v.videoSender) {
+      try { await v.videoSender.replaceTrack(nt); applyBitrate(v.videoSender); } catch (_) {}
+    }
+  }
+  cam.zoom = 1;
+  resetMotion(3000);
+  setTimeout(broadcastInfo, 300);
+}
+
+function handleCamMessage(m) {
+  if (!m || typeof m !== "object") return;
+  if (m.t === "zoom") applyZoom(+m.v).then(broadcastInfo);
+  else if (m.t === "flip") {
+    cam.facing = cam.facing === "environment" ? "user" : "environment";
+    localStorage.setItem("petcam_facing", cam.facing);
+    restartVideo();
+  } else if (m.t === "quality" && QUALITY[m.v]) {
+    cam.quality = m.v;
+    localStorage.setItem("petcam_quality", cam.quality);
+    restartVideo();
+  } else if (m.t === "hello") {
+    broadcastInfo();
+  } else if (m.t === "motionCfg" && m.cfg) {
+    applyMotionCfg(m.cfg);
+  } else if (m.t === "motionTest") {
+    sendTestAlert().then((ok) => sendAll({ t: "toast", text: ok ? "테스트 알림을 보냈어요" : "알림 전송 실패 — 아이패드 인터넷/토픽 확인" }));
+  }
+}
+
+function dropViewer(id) {
+  const v = cam.viewers.get(id);
+  if (!v) return;
+  cam.viewers.delete(id);
+  try { v.call?.close(); } catch (_) {}
+  try { v.conn?.close(); } catch (_) {}
+  updateCamHud();
+  camIdleStatus();
+}
+
+// 아이폰이 접속(데이터 연결)하면 → 아이패드가 영상 통화를 걸어줌
+function onViewerConn(conn) {
+  conn.on("open", () => {
+    if (cam.viewers.has(conn.peer)) dropViewer(conn.peer);
+    const v = { conn, call: null, videoSender: null, audioSender: null, connected: false };
+    cam.viewers.set(conn.peer, v);
+    try { conn.send(camInfo()); } catch (_) {}
+
+    const call = cam.peer.call(conn.peer, cam.stream, { sdpTransform: preferH264 });
+    v.call = call;
+    call.on("close", () => dropViewer(conn.peer));
+    call.on("error", () => dropViewer(conn.peer));
+    whenPC(call, (pc) => {
+      const onState = () => {
+        const s = pc.connectionState;
+        if (s === "connected") {
+          v.connected = true;
+          v.videoSender = pc.getSenders().find((x) => x.track?.kind === "video") || null;
+          v.audioSender = pc.getSenders().find((x) => x.track?.kind === "audio") || null;
+          applyBitrate(v.videoSender);
+          updateCamHud();
+          camIdleStatus();
+        } else if (s === "failed" || s === "closed") {
+          dropViewer(conn.peer);
+        } else if (s === "disconnected") {
+          setTimeout(() => { if (pc.connectionState === "disconnected") dropViewer(conn.peer); }, 8000);
+        }
+      };
+      pc.addEventListener("connectionstatechange", onState);
+      onState();
+    });
+  });
+  conn.on("data", handleCamMessage);
+  conn.on("close", () => dropViewer(conn.peer));
+  conn.on("error", () => dropViewer(conn.peer));
+}
+
+function connectCamPeer() {
+  camSetStatus("서버 연결 중", "wait");
+  const peer = new Peer(cam.peerId, PEER_OPTIONS);
+  cam.peer = peer;
+  peer.on("open", () => { if (cam.peer === peer) camIdleStatus(); });
+  peer.on("connection", onViewerConn);
+  peer.on("disconnected", () => {
+    if (cam.peer !== peer || peer.destroyed) return;
+    camSetStatus("서버 재연결 중", "wait");
+    setTimeout(() => { if (cam.peer === peer && !peer.destroyed) peer.reconnect(); }, 2000);
+  });
+  peer.on("error", (err) => {
+    console.warn("peer", err.type, err);
+    if (cam.peer !== peer) return;
+    if (NET_ERRORS.includes(err.type)) {
+      camSetStatus(err.type === "unavailable-id" ? "이전 연결 정리 중…" : "서버 연결 끊김 — 재시도", "wait");
+      cam.peer = null;
+      peer.destroy();
+      setTimeout(connectCamPeer, 5000);
+    }
+  });
+}
+
+async function requestWakeLock() {
+  try { if ("wakeLock" in navigator) cam.wakeLock = await navigator.wakeLock.request("screen"); } catch (_) {}
+}
+
+async function startCamMode() {
+  $("cam").hidden = false;
+  $("camRoom").textContent = "방 " + room;
+  camSetStatus("카메라 여는 중", "wait");
+
+  try {
+    cam.stream = await openCamera();
+  } catch (e) {
+    camSetStatus("카메라 권한 필요", "bad");
+    notice("카메라 접근이 거부됐어요. 설정 → 앱 → Safari → 카메라 → '허용'으로 바꾼 뒤 새로고침해주세요.");
+    return;
+  }
+  $("camVideo").srcObject = cam.stream;
+  await requestWakeLock();
+  updateCamHud();
+
+  if (!motion.cfg.topic) { motion.cfg.topic = `petcam-${room}`; saveMotionCfg(); }
+  resetMotion(4000);
+  setInterval(motionTick, 400);
+  setInterval(updateCamHud, 2000);
+
+  cam.peerId = await cameraPeerId(room);
+  connectCamPeer();
+}
+
+// 홈으로 갔다 오거나 화면이 꺼졌다 켜지면 카메라/화면 유지 복구
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState !== "visible" || !cam.stream) return;
+  requestWakeLock();
+  const t = camVideoTrack();
+  if (!t || t.readyState === "ended") await restartVideo();
+  const a = cam.stream.getAudioTracks()[0];
+  if (a && a.readyState === "ended") {
+    try {
+      const as = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const na = as.getAudioTracks()[0];
+      cam.stream.removeTrack(a);
+      cam.stream.addTrack(na);
+      for (const v of cam.viewers.values()) v.audioSender?.replaceTrack(na);
+    } catch (_) {}
+  }
+  if (cam.peer && cam.peer.disconnected && !cam.peer.destroyed) cam.peer.reconnect();
+});
+
+$("camBlack").onclick = () => { $("blackout").hidden = false; };
+$("blackout").onclick = () => { $("blackout").hidden = true; };
+$("camMotion").onclick = () => openSheet("cam");
+$("camFlip").onclick = () => handleCamMessage({ t: "flip" });
+$("camQuality").onchange = (e) => handleCamMessage({ t: "quality", v: e.target.value });
+$("camExit").onclick = () => {
+  if (!confirm("송출을 끝낼까요?")) return;
+  for (const id of [...cam.viewers.keys()]) dropViewer(id);
+  const p = cam.peer; cam.peer = null; p?.destroy();
+  cam.stream?.getTracks().forEach((t) => t.stop());
+  exitToHome();
+};
+
+/* =====================================================================
+   뷰어 모드 (아이폰)
+   ===================================================================== */
+const view = {
+  peer: null, conn: null, call: null, pc: null, stream: null, camId: "",
+  reconnectTimer: null, connectTimeout: null,
+  recorder: null, recChunks: [], recStart: 0, recTimer: null,
+  lastBytes: 0, lastTs: 0, info: null, zoomSendTimer: null
+};
+
+function viewSetStatus(text, state) {
+  $("viewStatus").textContent = text;
+  $("viewDot").className = "dot " + state;
+}
+function showOverlay(text, spin = true) {
+  $("overlayMsg").hidden = false;
+  $("overlayText").textContent = text;
+  $("overlayMsg").querySelector(".spin").style.display = spin ? "" : "none";
+}
+function hideOverlay() { $("overlayMsg").hidden = true; }
+
+function sendCtl(obj) {
+  if (view.conn && view.conn.open) { try { view.conn.send(obj); } catch (_) {} }
+}
+
+function closeViewLinks() {
+  clearTimeout(view.connectTimeout);
+  const c = view.conn, k = view.call;
+  view.conn = null; view.call = null; view.pc = null;
+  try { k?.close(); } catch (_) {}
+  try { c?.close(); } catch (_) {}
+}
+
+function scheduleReconnect(ms = 3000) {
+  clearTimeout(view.reconnectTimer);
+  view.reconnectTimer = setTimeout(() => {
+    const p = view.peer;
+    if (p && p.open) connectToCam();
+    else if (!p || p.destroyed) initViewPeer();
+    else if (p.disconnected) p.reconnect();
+  }, ms);
+}
+
+function onLost() {
+  viewSetStatus("끊김 — 재연결 중", "bad");
+  scheduleReconnect(2000);
+}
+
+function connectToCam() {
+  closeViewLinks();
+  viewSetStatus("연결 중", "wait");
+  if (!view.stream || !view.stream.getTracks().some((t) => t.readyState === "live")) showOverlay("카메라에 연결 중…");
+
+  const conn = view.peer.connect(view.camId, { serialization: "json", reliable: true });
+  view.conn = conn;
+  conn.on("open", () => conn.send({ t: "hello" }));
+  conn.on("data", (m) => {
+    if (!m || typeof m !== "object") return;
+    if (m.t === "info") applyInfo(m);
+    else if (m.t === "motion") onMotionEvent(m);
+    else if (m.t === "toast") toast(m.text);
+  });
+  conn.on("close", () => { if (view.conn === conn) onLost(); });
+  conn.on("error", () => { if (view.conn === conn) onLost(); });
+
+  view.connectTimeout = setTimeout(() => {
+    if (view.conn === conn && !(view.pc && view.pc.connectionState === "connected")) {
+      viewSetStatus("카메라 응답 없음", "bad");
+      showOverlay("아이패드가 응답하지 않아요.\n카메라 모드가 켜져 있고 화면이 켜져 있는지 확인해주세요.\n자동으로 다시 시도합니다…");
+      scheduleReconnect(5000);
+    }
+  }, 20000);
+}
+
+function onIncomingCall(call) {
+  if (view.call && view.call !== call) { try { view.call.close(); } catch (_) {} }
+  view.call = call;
+  call.answer(undefined, { sdpTransform: preferH264 });
+  call.on("stream", (s) => {
+    view.stream = s;
+    $("remote").srcObject = s;
+    $("remote").play().catch(() => {});
+  });
+  call.on("close", () => { if (view.call === call) onLost(); });
+  call.on("error", () => { if (view.call === call) onLost(); });
+  whenPC(call, (pc) => {
+    if (view.call !== call) return;
+    view.pc = pc;
+    const onState = () => {
+      if (view.pc !== pc) return;
+      const s = pc.connectionState;
+      if (s === "connected") {
+        clearTimeout(view.connectTimeout);
+        clearTimeout(view.reconnectTimer);
+        viewSetStatus("실시간", "ok");
+        hideOverlay();
+      } else if (s === "disconnected") {
+        viewSetStatus("신호 약함…", "wait");
+        clearTimeout(view.reconnectTimer);
+        view.reconnectTimer = setTimeout(() => {
+          if (view.pc === pc && pc.connectionState !== "connected") connectToCam();
+        }, 5000);
+      } else if (s === "failed") {
+        onLost();
+      }
+    };
+    pc.addEventListener("connectionstatechange", onState);
+    onState();
+  });
+}
+
+function initViewPeer() {
+  const old = view.peer;
+  view.peer = null;
+  try { old?.destroy(); } catch (_) {}
+  viewSetStatus("서버 연결 중", "wait");
+  const peer = new Peer(PEER_OPTIONS);
+  view.peer = peer;
+  peer.on("open", () => { if (view.peer === peer) connectToCam(); });
+  peer.on("call", (call) => { if (view.peer === peer) onIncomingCall(call); });
+  peer.on("disconnected", () => {
+    if (view.peer !== peer || peer.destroyed) return;
+    setTimeout(() => { if (view.peer === peer && !peer.destroyed && peer.disconnected) peer.reconnect(); }, 2000);
+  });
+  peer.on("error", (err) => {
+    console.warn("peer", err.type, err);
+    if (view.peer !== peer) return;
+    if (err.type === "peer-unavailable") {
+      clearTimeout(view.connectTimeout);
+      viewSetStatus("카메라 꺼짐", "bad");
+      showOverlay("아이패드에서 카메라 모드가 켜져 있지 않아요.\n(방 코드가 같은지도 확인해주세요)\n자동으로 다시 시도합니다…");
+      scheduleReconnect(5000);
+    } else if (NET_ERRORS.includes(err.type)) {
+      viewSetStatus("서버 연결 끊김 — 재시도", "bad");
+      clearTimeout(view.reconnectTimer);
+      view.reconnectTimer = setTimeout(initViewPeer, 4000);
+    }
+  });
+}
+
+function applyInfo(m) {
+  view.info = m;
+  if (m.motion) {
+    $("vMotion").classList.toggle("on", !!m.motion.enabled);
+    if (sheetMode === "view" && !$("sheetBack").hidden) fillSheet(m.motion);
+  }
+  if (m.quality) $("vQuality").value = m.quality;
+  const wrap = $("camZoomWrap");
+  if (m.zoom) {
+    wrap.hidden = false;
+    const r = $("camZoom");
+    r.min = m.zoom.min; r.max = Math.min(m.zoom.max, 10); r.step = m.zoom.step || 0.1;
+    if (document.activeElement !== r) r.value = m.zoom.cur;
+    $("camZoomVal").textContent = Number(m.zoom.cur).toFixed(1) + "×";
+  } else {
+    wrap.hidden = true;
+  }
+}
+
+// 통계 표시 (해상도 · fps · 비트레이트)
+setInterval(async () => {
+  const pc = view.pc;
+  if (!pc || pc.connectionState !== "connected") return;
+  try {
+    const stats = await pc.getStats();
+    stats.forEach((r) => {
+      if (r.type === "inbound-rtp" && r.kind === "video") {
+        const now = r.timestamp;
+        let kbps = 0;
+        if (view.lastTs && r.bytesReceived >= view.lastBytes) kbps = ((r.bytesReceived - view.lastBytes) * 8) / (now - view.lastTs);
+        view.lastBytes = r.bytesReceived; view.lastTs = now;
+        const w = r.frameWidth || $("remote").videoWidth;
+        const h = r.frameHeight || $("remote").videoHeight;
+        const fps = Math.round(r.framesPerSecond || 0);
+        $("stats").textContent = `${w}×${h} · ${fps}fps · ${(kbps / 1000).toFixed(1)}Mbps`;
+      }
+    });
+  } catch (_) {}
+}, 1000);
+
+/* ---------- 손가락 확대 / 이동 (디지털 줌) ---------- */
+const zoomState = { s: 1, tx: 0, ty: 0 };
+const pointers = new Map();
+let gesture = null;
+let lastTap = 0, tapTimer = null, moved = false;
+
+function clampPan() {
+  const st = $("stage").getBoundingClientRect();
+  const minX = st.width * (1 - zoomState.s), minY = st.height * (1 - zoomState.s);
+  zoomState.tx = Math.min(0, Math.max(minX, zoomState.tx));
+  zoomState.ty = Math.min(0, Math.max(minY, zoomState.ty));
+}
+function renderZoom(showBadge = true) {
+  clampPan();
+  $("remote").style.transform = `translate(${zoomState.tx}px,${zoomState.ty}px) scale(${zoomState.s})`;
+  if (showBadge) {
+    const b = $("zoomBadge");
+    b.textContent = zoomState.s.toFixed(1) + "×";
+    b.style.opacity = 1;
+    clearTimeout(b._t);
+    b._t = setTimeout(() => (b.style.opacity = 0), 700);
+  }
+}
+function zoomAt(newS, cx, cy) {
+  newS = Math.min(10, Math.max(1, newS));
+  const px = (cx - zoomState.tx) / zoomState.s;
+  const py = (cy - zoomState.ty) / zoomState.s;
+  zoomState.s = newS;
+  zoomState.tx = cx - px * newS;
+  zoomState.ty = cy - py * newS;
+  renderZoom();
+}
+
+const stage = $("stage");
+function localPt(e) {
+  const r = stage.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+function startGesture() {
+  const pts = [...pointers.values()];
+  if (pts.length >= 2) {
+    const [a, b] = pts;
+    gesture = {
+      type: "pinch",
+      d0: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      m0: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+      s0: zoomState.s, tx0: zoomState.tx, ty0: zoomState.ty
+    };
+  } else if (pts.length === 1) {
+    gesture = { type: "pan", p0: { ...pts[0] }, tx0: zoomState.tx, ty0: zoomState.ty };
+  } else gesture = null;
+}
+stage.addEventListener("pointerdown", (e) => {
+  stage.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, localPt(e));
+  if (pointers.size === 1) moved = false;
+  startGesture();
+});
+stage.addEventListener("pointermove", (e) => {
+  if (!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, localPt(e));
+  if (!gesture) return;
+  const pts = [...pointers.values()];
+  if (gesture.type === "pinch" && pts.length >= 2) {
+    const [a, b] = pts;
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const s = Math.min(10, Math.max(1, gesture.s0 * (d / gesture.d0)));
+    const px = (gesture.m0.x - gesture.tx0) / gesture.s0;
+    const py = (gesture.m0.y - gesture.ty0) / gesture.s0;
+    zoomState.s = s;
+    zoomState.tx = m.x - px * s;
+    zoomState.ty = m.y - py * s;
+    moved = true;
+    renderZoom();
+  } else if (gesture.type === "pan" && pts.length === 1) {
+    const dx = pts[0].x - gesture.p0.x, dy = pts[0].y - gesture.p0.y;
+    if (Math.hypot(dx, dy) > 8) moved = true;
+    if (zoomState.s > 1) {
+      zoomState.tx = gesture.tx0 + dx;
+      zoomState.ty = gesture.ty0 + dy;
+      renderZoom(false);
+    }
+  }
+});
+function endPointer(e) {
+  const pt = pointers.get(e.pointerId);
+  pointers.delete(e.pointerId);
+  if (pointers.size === 0 && !moved && pt) {
+    const now = Date.now();
+    if (now - lastTap < 300) {
+      // 더블탭: 2.5배 ↔ 원래대로
+      clearTimeout(tapTimer);
+      lastTap = 0;
+      if (zoomState.s > 1.05) { zoomState.s = 1; zoomState.tx = 0; zoomState.ty = 0; renderZoom(); }
+      else zoomAt(2.5, pt.x, pt.y);
+    } else {
+      lastTap = now;
+      // 한 번 탭: 버튼 숨기기/보이기
+      tapTimer = setTimeout(() => $("view").classList.toggle("hide-ui"), 300);
+    }
+  }
+  startGesture();
+}
+stage.addEventListener("pointerup", endPointer);
+stage.addEventListener("pointercancel", endPointer);
+window.addEventListener("resize", () => renderZoom(false));
+
+/* ---------- 카메라(센서) 줌 ---------- */
+$("camZoom").addEventListener("input", (e) => {
+  const v = parseFloat(e.target.value);
+  $("camZoomVal").textContent = v.toFixed(1) + "×";
+  clearTimeout(view.zoomSendTimer);
+  view.zoomSendTimer = setTimeout(() => sendCtl({ t: "zoom", v }), 80);
+});
+
+/* ---------- 움직임 감지 설정 시트 (카메라/뷰어 공용) ---------- */
+let sheetMode = null;
+function fillSheet(cfg) {
+  $("mEnabled").checked = !!cfg.enabled;
+  $("mSens").value = cfg.sens;
+  $("mCooldown").value = String(cfg.cooldown);
+  $("mTopic").value = cfg.topic || "";
+  $("mLast").textContent = cfg.lastAt ? `마지막 감지: ${timeStr(cfg.lastAt)}` : "아직 감지된 움직임이 없어요";
+}
+function openSheet(mode) {
+  const cfg = mode === "cam" ? { ...motion.cfg, lastAt: motion.lastAt } : view.info?.motion;
+  if (!cfg) return toast("카메라에 연결된 뒤 설정할 수 있어요");
+  sheetMode = mode;
+  fillSheet(cfg);
+  $("mTopic").readOnly = mode !== "cam";
+  $("sheetBack").hidden = false;
+}
+function sheetChanged() {
+  const cfg = { enabled: $("mEnabled").checked, sens: $("mSens").value, cooldown: +$("mCooldown").value };
+  if (sheetMode === "cam") applyMotionCfg({ ...cfg, topic: $("mTopic").value });
+  else sendCtl({ t: "motionCfg", cfg });
+}
+["mEnabled", "mSens", "mCooldown", "mTopic"].forEach((id) => $(id).addEventListener("change", sheetChanged));
+$("mTest").onclick = async () => {
+  if (sheetMode === "cam") {
+    toast("보내는 중…");
+    const ok = await sendTestAlert();
+    toast(ok ? "테스트 알림을 보냈어요" : "전송 실패 — 인터넷/토픽 확인");
+  } else {
+    sendCtl({ t: "motionTest" });
+    toast("아이패드에서 테스트 알림 보내는 중…");
+  }
+};
+$("mCopy").onclick = () => {
+  const t = $("mTopic").value;
+  (navigator.clipboard?.writeText(t) || Promise.reject()).then(
+    () => toast("토픽을 복사했어요"),
+    () => toast(t)
+  );
+};
+$("mClose").onclick = () => ($("sheetBack").hidden = true);
+$("sheetBack").addEventListener("click", (e) => { if (e.target.id === "sheetBack") $("sheetBack").hidden = true; });
+
+// 뷰어: 보고 있을 때 움직임 배너 + 알림음
+let audioCtx = null;
+document.addEventListener("pointerdown", () => {
+  if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (_) {} }
+  audioCtx?.resume?.();
+}, { passive: true });
+function beep() {
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime;
+  [0, 0.18].forEach((dt) => {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.frequency.value = 880;
+    g.gain.setValueAtTime(0.0001, t0 + dt);
+    g.gain.exponentialRampToValueAtTime(0.25, t0 + dt + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.14);
+    o.connect(g).connect(audioCtx.destination);
+    o.start(t0 + dt); o.stop(t0 + dt + 0.15);
+  });
+}
+let bannerTimer = null;
+function onMotionEvent(m) {
+  const b = $("motionBanner");
+  b.textContent = `🐾 움직임 감지 · ${timeStr(m.at)}`;
+  b.hidden = false;
+  clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(() => (b.hidden = true), 6000);
+  beep();
+}
+$("motionBanner").onclick = () => ($("motionBanner").hidden = true);
+
+/* ---------- 뷰어 버튼 ---------- */
+$("vMute").onclick = () => {
+  const v = $("remote");
+  v.muted = !v.muted;
+  v.play().catch(() => {});
+  $("vMute").textContent = v.muted ? "🔇 소리" : "🔊 소리";
+  $("vMute").classList.toggle("on", !v.muted);
+};
+
+$("vShot").onclick = () => {
+  const v = $("remote");
+  if (!v.videoWidth) return toast("아직 영상이 없어요");
+  const c = document.createElement("canvas");
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  c.getContext("2d").drawImage(v, 0, 0);
+  // 공유 시트가 바로 뜨도록 동기 변환
+  const data = c.toDataURL("image/jpeg", 0.95);
+  const bin = atob(data.split(",")[1]);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  saveBlob(new Blob([arr], { type: "image/jpeg" }), `petcam_${stamp()}.jpg`);
+};
+
+$("vRec").onclick = () => {
+  if (view.recorder && view.recorder.state === "recording") {
+    view.recorder.stop();
+    return;
+  }
+  if (!view.stream) return toast("아직 영상이 없어요");
+  const types = ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp8", "video/webm"];
+  const mime = types.find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
+  try {
+    view.recorder = new MediaRecorder(view.stream, mime ? { mimeType: mime, videoBitsPerSecond: 8_000_000 } : undefined);
+  } catch (e) { return toast("이 브라우저는 녹화를 지원하지 않아요"); }
+  view.recChunks = [];
+  view.recorder.ondataavailable = (e) => { if (e.data.size) view.recChunks.push(e.data); };
+  view.recorder.onstop = () => {
+    clearInterval(view.recTimer);
+    $("recPill").hidden = true;
+    $("vRec").textContent = "⏺ 녹화";
+    $("vRec").classList.remove("rec");
+    const type = view.recorder.mimeType || "video/mp4";
+    const blob = new Blob(view.recChunks, { type });
+    const ext = type.includes("mp4") ? "mp4" : "webm";
+    toast("녹화 완료", "저장하기", () => saveBlob(blob, `petcam_${stamp()}.${ext}`), 0);
+  };
+  view.recorder.start(1000);
+  view.recStart = Date.now();
+  $("recPill").hidden = false;
+  $("vRec").textContent = "⏹ 정지";
+  $("vRec").classList.add("rec");
+  view.recTimer = setInterval(() => {
+    const s = Math.floor((Date.now() - view.recStart) / 1000);
+    $("recTime").textContent = `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  }, 500);
+};
+
+$("vMotion").onclick = () => openSheet("view");
+$("vFlip").onclick = () => sendCtl({ t: "flip" });
+$("vQuality").onchange = (e) => {
+  sendCtl({ t: "quality", v: e.target.value });
+  toast(`${QUALITY[e.target.value].label}로 변경 중…`);
+};
+$("vReconnect").onclick = () => {
+  toast("다시 연결하는 중…");
+  if (view.peer && view.peer.open) connectToCam(); else initViewPeer();
+};
+$("vExit").onclick = () => { closeViewLinks(); view.peer?.destroy(); exitToHome(); };
+
+async function startViewMode() {
+  $("view").hidden = false;
+  showOverlay("카메라에 연결 중…");
+  view.camId = await cameraPeerId(room);
+  initViewPeer();
+}
+
+// 앱 전환 후 돌아오면 끊겼을 경우 재연결
+document.addEventListener("visibilitychange", () => {
+  if ($("view").hidden || document.visibilityState !== "visible") return;
+  if (!view.pc || view.pc.connectionState !== "connected") scheduleReconnect(300);
+  else $("remote").play().catch(() => {});
+});
+window.addEventListener("pagehide", () => {
+  try { view.peer?.destroy(); } catch (_) {}
+});
+
+/* ---------- 자동 시작 (홈 화면 바로가기 / 알림 탭으로 열었을 때) ---------- */
+const startMode = params.get("mode");
+if ((startMode === "cam" || startMode === "view") && params.get("room")) go(startMode);
+</script>
+</body>
+</html>
