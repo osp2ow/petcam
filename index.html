@@ -154,6 +154,7 @@
   <button class="big" id="goView"><span class="ico">📱</span><span><b>보기</b><small>아이폰 — 밖에서도 접속 가능</small></span></button>
   <div class="hint">
     팁: 각 기기에서 해당 모드로 들어간 뒤 Safari 공유 → <b>홈 화면에 추가</b>하면 다음부턴 바로 그 모드로 열려요.
+    <br><span id="verLabel"></span>
   </div>
 </section>
 
@@ -341,7 +342,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-15.9";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-15.10";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -355,6 +356,7 @@ const QUALITY = {
 
 const $ = (id) => document.getElementById(id);
 $("boot").hidden = true;   // 여기까지 왔으면 스크립트가 실행되는 환경
+$("verLabel").textContent = "버전 v" + APP_VERSION.split(".").pop();
 
 /* =====================================================================
    공통 유틸
@@ -1249,7 +1251,7 @@ async function requestWakeLock() {
 
 async function startCamMode() {
   $("cam").hidden = false;
-  $("camRoom").textContent = "방 " + room;
+  $("camRoom").textContent = `방 ${room} · v${APP_VERSION.split(".").pop()}`;
   camSetStatus("카메라 여는 중", "wait");
 
   try {
@@ -2020,6 +2022,22 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("pagehide", () => {
   try { view.peer?.destroy(); } catch (_) {}
 });
+
+/* ---------- 자동 업데이트: 새 버전이 올라오면 캐시를 피해서 새로 불러오기 ---------- */
+async function checkUpdate() {
+  try {
+    const r = await fetch(`${location.pathname}?vcheck=${Date.now()}`, { cache: "no-store" });
+    const m = (await r.text()).match(/const APP_VERSION = "([^"]+)"/);
+    if (!m || m[1] === APP_VERSION) return;
+    if (rec.clip) return;   // 클립 녹화 중이면 다음 확인 때
+    const u = new URL(location.href);
+    u.searchParams.set("v", m[1]);
+    location.replace(u.toString());
+  } catch (_) {}
+}
+setTimeout(checkUpdate, 3000);
+setInterval(checkUpdate, 5 * 60 * 1000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkUpdate(); });
 
 /* ---------- 자동 시작 (홈 화면 바로가기 / 알림 탭으로 열었을 때) ---------- */
 const startMode = params.get("mode");
