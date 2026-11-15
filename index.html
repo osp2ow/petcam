@@ -61,9 +61,6 @@
   #camVideo{width:100%;height:100%;object-fit:contain;background:#000}
   #blackout{position:fixed;inset:0;background:#000;z-index:55;display:flex;align-items:center;justify-content:center;
     touch-action:none;-webkit-touch-callout:none;cursor:none}
-  #blackHint{color:#555;font-size:15px;opacity:0;transition:opacity .4s;pointer-events:none;text-align:center;line-height:1.6}
-  #blackHint.show{opacity:1}
-  #blackHint.hold{color:var(--accent)}
 
   /* ---------- 뷰어(아이폰) ---------- */
   #stage{position:absolute;inset:0;touch-action:none;overflow:hidden}
@@ -181,7 +178,7 @@
     </select>
     <button id="camExit">나가기</button>
   </div>
-  <div id="blackout" hidden><div id="blackHint">길게 눌러서 화면 켜기<br><small>송출·감지·기록은 계속되고 있어요</small></div></div>
+  <div id="blackout" hidden></div>
 </section>
 
 <!-- ================= 뷰어 모드 (아이폰) ================= -->
@@ -262,7 +259,7 @@
       </select>
     </label>
     <button id="mBlackNow">🌙 지금 아이패드 화면 끄기</button>
-    <div class="hint">꺼진 화면은 길게 눌러야 켜져요(반려동물이 밟아도 OK). 밝기를 최저로 해두면 더 어두워져요.</div>
+    <div class="hint">꺼진 화면은 탭하면 다시 켜져요. 송출·감지·기록은 계속돼요. 밝기를 최저로 해두면 더 어두워져요.</div>
 
     <div class="sec">📼 자동 기록</div>
     <label class="row"><span>켜기</span><input type="checkbox" id="mRec"></label>
@@ -909,26 +906,11 @@ const cam = {
 function setBlack(on) {
   cam.black = !!on;
   $("blackout").hidden = !on;
-  $("blackHint").className = "";
   cam.lastTouch = Date.now();
   broadcastInfo();
 }
-let holdTimer = null, hintTimer = null;
-function blackHint(cls) {
-  const h = $("blackHint");
-  h.className = "show " + (cls || "");
-  clearTimeout(hintTimer);
-  hintTimer = setTimeout(() => (h.className = ""), 2500);
-}
-$("blackout").addEventListener("pointerdown", (e) => {
-  e.preventDefault();
-  blackHint();
-  clearTimeout(holdTimer);
-  holdTimer = setTimeout(() => { blackHint("hold"); setBlack(false); }, 1200);
-});
-["pointerup", "pointercancel", "pointerleave"].forEach((ev) =>
-  $("blackout").addEventListener(ev, () => clearTimeout(holdTimer)));
-$("blackout").addEventListener("contextmenu", (e) => e.preventDefault());
+// 탭 한 번이면 다시 켜짐 (뒤에 있는 버튼은 눌리지 않음)
+$("blackout").addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); setBlack(false); });
 
 function camSetStatus(text, state) {
   $("camStatus").textContent = text;
