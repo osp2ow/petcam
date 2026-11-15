@@ -337,6 +337,7 @@
    ===================================================================== */
 "use strict";
 
+const APP_VERSION = "2026-11-15.6";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -959,6 +960,7 @@ function camInfo() {
     res: s.width && s.height ? `${s.width}×${s.height}` : "",
     zoom,
     black: cam.black,
+    ver: APP_VERSION,
     motion: { ...motion.cfg, lastAt: motion.lastAt }
   };
 }
@@ -1337,11 +1339,18 @@ function initViewPeer() {
   });
 }
 
+let oldWarned = false;
+function warnOldCamera(force) {
+  if (oldWarned && !force) return;
+  oldWarned = true;
+  toast("⚠️ 아이패드가 예전 버전이에요. 아이패드에서 펫캠을 새로고침(또는 완전히 껐다 켜기) 해주세요. 그 전엔 일부 설정이 저장되지 않아요.", null, null, 10000);
+}
 function applyInfo(m) {
   view.info = m;
+  if (m.ver !== APP_VERSION) warnOldCamera();
   if (m.motion) {
     $("vMotion").classList.toggle("on", !!m.motion.enabled);
-    if (sheetMode === "view" && !$("sheetBack").hidden) fillSheet(m.motion);
+    if (sheetMode === "view" && !$("sheetBack").hidden) fillSheet(m.motion, true);
     else if (sheetMode === "view") updateBlackBtn();
   }
   if (m.quality) $("vQuality").value = m.quality;
@@ -1496,22 +1505,25 @@ $("camZoom").addEventListener("input", (e) => {
 
 /* ---------- 움직임 감지 설정 시트 (카메라/뷰어 공용) ---------- */
 let sheetMode = null;
-function fillSheet(cfg) {
-  $("mEnabled").checked = !!cfg.enabled;
-  $("mSens").value = cfg.sens;
-  $("mCooldown").value = String(cfg.cooldown);
-  $("mTopic").value = cfg.topic || "";
-  $("mQuiet").checked = !!cfg.quiet;
-  $("mQFrom").value = cfg.qFrom || "23:00";
-  $("mQTo").value = cfg.qTo || "07:00";
-  $("mRec").checked = !!cfg.rec;
-  $("mRFrom").value = cfg.rFrom || "00:00";
-  $("mRTo").value = cfg.rTo || "07:00";
-  $("mTl").value = String(cfg.tlSec || 10);
-  $("mClips").checked = cfg.clips !== false;
-  $("mClipSec").value = String(cfg.clipSec || 30);
-  $("mKeep").value = String(cfg.keepDays || 3);
-  $("mAutoBlack").value = String(cfg.autoBlack ?? 60);
+let sheetHoldUntil = 0;
+function fillSheet(cfg, fromRemote) {
+  if (fromRemote && Date.now() < sheetHoldUntil) return;   // 방금 바꾼 값이 아이패드에 반영되는 중
+  const set = (id, prop, val) => { const el = $(id); if (el !== document.activeElement) el[prop] = val; };
+  set("mEnabled", "checked", !!cfg.enabled);
+  set("mSens", "value", cfg.sens);
+  set("mCooldown", "value", String(cfg.cooldown));
+  set("mTopic", "value", cfg.topic || "");
+  set("mQuiet", "checked", !!cfg.quiet);
+  set("mQFrom", "value", cfg.qFrom || "23:00");
+  set("mQTo", "value", cfg.qTo || "07:00");
+  set("mRec", "checked", !!cfg.rec);
+  set("mRFrom", "value", cfg.rFrom || "00:00");
+  set("mRTo", "value", cfg.rTo || "07:00");
+  set("mTl", "value", String(cfg.tlSec || 10));
+  set("mClips", "checked", cfg.clips !== false);
+  set("mClipSec", "value", String(cfg.clipSec || 30));
+  set("mKeep", "value", String(cfg.keepDays || 3));
+  set("mAutoBlack", "value", String(cfg.autoBlack ?? 60));
   updateBlackBtn();
   $("mLast").textContent = cfg.lastAt ? `마지막 감지: ${timeStr(cfg.lastAt)}` : "아직 감지된 움직임이 없어요";
 }
@@ -1532,7 +1544,11 @@ function sheetChanged() {
     autoBlack: +$("mAutoBlack").value
   };
   if (sheetMode === "cam") { applyMotionCfg({ ...cfg, topic: $("mTopic").value }); recTick(); }
-  else sendCtl({ t: "motionCfg", cfg });
+  else {
+    if (view.info && view.info.ver !== APP_VERSION) { warnOldCamera(true); }
+    sheetHoldUntil = Date.now() + 2500;
+    sendCtl({ t: "motionCfg", cfg });
+  }
 }
 ["mEnabled", "mSens", "mCooldown", "mTopic", "mQuiet", "mQFrom", "mQTo", "mRec", "mRFrom", "mRTo", "mTl", "mClips", "mClipSec", "mKeep", "mAutoBlack"].forEach((id) => $(id).addEventListener("change", sheetChanged));
 $("mTest").onclick = async () => {
