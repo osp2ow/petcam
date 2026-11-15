@@ -343,7 +343,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-15.11";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-15.12";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -514,7 +514,8 @@ const exitToHome = () => { location.href = location.pathname; };
    움직임 감지 (아이패드에서 실행) + ntfy 푸시 알림
    ===================================================================== */
 // 민감도: 화면에서 "변한 픽셀 비율"이 이 값을 넘으면 움직임으로 판단
-const SENS = { high: 0.003, mid: 0.008, low: 0.02 };
+// 민감도: 화면을 16×9 칸으로 나눴을 때 "움직인 칸" 비율 (high ≈ 1칸, mid ≈ 2칸, low ≈ 5칸)
+const SENS = { high: 0.006, mid: 0.013, low: 0.034 };
 const motion = {
   cfg: Object.assign(
     {
@@ -573,11 +574,24 @@ function motionTick() {
   ctx.drawImage(v, ...srcRect(v), 0, 0, w, h);
   const d = ctx.getImageData(0, 0, w, h).data;
   const n = w * h;
+  // 1) 흑백 + 살짝 흐리게(3×3) → 어두울 때 생기는 노이즈, 초점 변화로 생기는 미세한 테두리 변화 줄이기
+  const raw = new Float32Array(n);
+  for (let i = 0, j = 0; i < n; i++, j += 4) raw[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
   const g = new Float32Array(n);
   let sum = 0;
-  for (let i = 0, j = 0; i < n; i++, j += 4) {
-    const y = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
-    g[i] = y; sum += y;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let acc = 0, cnt = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = y + dy; if (yy < 0 || yy >= h) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx; if (xx < 0 || xx >= w) continue;
+          acc += raw[yy * w + xx]; cnt++;
+        }
+      }
+      const val = acc / cnt;
+      g[y * w + x] = val; sum += val;
+    }
   }
   if (!motion.bg) { motion.bg = g; return; }
 
@@ -585,20 +599,40 @@ function motionTick() {
   for (let i = 0; i < n; i++) bgSum += motion.bg[i];
   const off = sum / n - bgSum / n;           // 화면 전체 밝기 변화(자동 노출) 보정
   if (Math.abs(off) > 35) {                   // 불 켜기/끄기 같은 급격한 조명 변화는 무시
-    motion.bg = g; motion.hits = 0; return;
+    motion.bg = g; motion.hits = 0; motion.ignoreUntil = Date.now() + 2000; return;
   }
-  let changed = 0;
-  for (let i = 0; i < n; i++) {
-    if (Math.abs(g[i] - motion.bg[i] - off) > 24) changed++;
-    motion.bg[i] = motion.bg[i] * 0.85 + g[i] * 0.15;   // 배경을 천천히 갱신
+
+  // 2) 16×9 칸으로 나눠서, 칸 안의 30% 이상이 변한 칸만 "움직인 칸"으로 셈 (움직임은 한곳에 뭉쳐서 생김)
+  const cols = 16, rows = 9;
+  const cellChanged = new Uint16Array(cols * rows), cellTotal = new Uint16Array(cols * rows);
+  for (let y = 0; y < h; y++) {
+    const r = Math.min(rows - 1, Math.floor(y * rows / h));
+    for (let x = 0; x < w; x++) {
+      const c = Math.min(cols - 1, Math.floor(x * cols / w));
+      const i = y * w + x, k = r * cols + c;
+      cellTotal[k]++;
+      if (Math.abs(g[i] - motion.bg[i] - off) > 26) cellChanged[k]++;
+      motion.bg[i] = motion.bg[i] * 0.85 + g[i] * 0.15;   // 배경을 천천히 갱신
+    }
   }
-  motion.score = changed / n;
+  let active = 0;
+  for (let k = 0; k < cols * rows; k++) if (cellTotal[k] && cellChanged[k] / cellTotal[k] > 0.3) active++;
+  const score = active / (cols * rows);
+
+  // 3) 화면 절반 이상이 한꺼번에 변하면 → 초점·노출·렌즈 전환 같은 카메라 자체 조정으로 보고 무시
+  if (score > 0.5) {
+    motion.bg = g; motion.hits = 0; motion.score = 0;
+    motion.ignoreUntil = Date.now() + 2500;
+    updateMotionPill();
+    return;
+  }
+  motion.score = score;
   updateMotionPill();
 
-  if (Date.now() < motion.ignoreUntil) return;
-  if (motion.score > SENS[motion.cfg.sens]) motion.hits++;
+  if (Date.now() < motion.ignoreUntil) { motion.hits = 0; return; }
+  if (motion.score >= SENS[motion.cfg.sens]) motion.hits++;
   else motion.hits = 0;
-  if (motion.hits >= 2) {                      // 연속 2번(약 0.8초) 이상일 때만
+  if (motion.hits >= 3) {                      // 연속 3번(약 1.2초) 이상일 때만
     motion.hits = 0;
     triggerMotion(motion.score);
   }
