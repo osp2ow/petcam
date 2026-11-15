@@ -201,6 +201,7 @@
   <div class="topbar">
     <span class="pill"><span class="dot wait" id="viewDot"></span><span id="viewStatus">연결 중</span></span>
     <span class="pill" id="stats">-</span>
+    <span class="pill fixed-badge" id="vCropPill" hidden>📌 구도 고정</span>
     <span class="spacer"></span>
     <span class="pill" id="recPill" hidden>● <span id="recTime">00:00</span></span>
   </div>
@@ -343,7 +344,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-15.12";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-15.13";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -1460,6 +1461,7 @@ function initViewPeer() {
 }
 
 let oldWarned = false;
+let verShown = false;
 function warnOldCamera(force) {
   if (oldWarned && !force) return;
   oldWarned = true;
@@ -1467,6 +1469,7 @@ function warnOldCamera(force) {
 }
 function applyInfo(m) {
   view.info = m;
+  if (!verShown) { verShown = true; toast(`아이폰 v${APP_VERSION.split(".").pop()} · 아이패드 v${(m.ver || "?").split(".").pop()}`, null, null, 4000); }
   if (m.ver !== APP_VERSION) warnOldCamera();
   if (m.motion) {
     $("vMotion").classList.toggle("on", !!m.motion.enabled);
@@ -1594,6 +1597,7 @@ const viewZoom = makeZoomable($("stage"), $("remoteWrap"), $("zoomBadge"), () =>
 // 아이패드에서 고정한 구도대로 아이폰 화면을 확대 (구도 밖은 잘라냄)
 function applyViewCrop() {
   const v = $("remote"), c = view.info?.crop;
+  $("vCropPill").hidden = !c;
   if (!c || !v.videoWidth) {
     v.style.transform = ""; v.style.clipPath = ""; v.style.webkitClipPath = "";
     return;
@@ -1611,6 +1615,8 @@ function applyViewCrop() {
 }
 ["loadedmetadata", "resize"].forEach((ev) => $("remote").addEventListener(ev, applyViewCrop));
 window.addEventListener("resize", applyViewCrop);
+["playing", "loadeddata"].forEach((ev) => $("remote").addEventListener(ev, applyViewCrop));
+setInterval(() => { if (!$("view").hidden) applyViewCrop(); }, 2000);   // 혹시 놓쳐도 2초마다 다시 적용
 const camZoom = makeZoomable($("camStage"), $("camVideo"), $("camZoomBadge"), () => $("cam").classList.toggle("hide-ui"));
 camZoom.onChange = () => updateCropUI();
 
