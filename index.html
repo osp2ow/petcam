@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
 <meta name="apple-mobile-web-app-title" content="펫캠">
 <title>펫캠</title>
 <style>
@@ -46,8 +47,8 @@
   .screen{position:fixed;inset:0;background:#000;overflow:hidden}
   .topbar,.bottombar{position:absolute;left:0;right:0;display:flex;gap:8px;align-items:center;
     padding:10px 12px;z-index:5;transition:opacity .25s}
-  .topbar{top:0;padding-top:max(10px,env(safe-area-inset-top));
-    background:linear-gradient(rgba(0,0,0,.6),transparent)}
+  .topbar{top:0;padding-top:calc(env(safe-area-inset-top, 0px) + 22px);
+    background:linear-gradient(#000 0, #000 calc(env(safe-area-inset-top, 0px) + 14px), rgba(0,0,0,.55) 70%, transparent)}
   .bottombar{bottom:0;padding-bottom:max(12px,env(safe-area-inset-bottom));flex-wrap:wrap;justify-content:center;
     background:linear-gradient(transparent,rgba(0,0,0,.7))}
   .hide-ui .topbar,.hide-ui .bottombar,.hide-ui .zoomwrap{opacity:0;pointer-events:none}
@@ -109,7 +110,7 @@
 
   /* ---------- 기록 보기 ---------- */
   #records{position:fixed;inset:0;z-index:45;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch;
-    padding:max(12px,env(safe-area-inset-top)) 14px max(20px,env(safe-area-inset-bottom))}
+    padding:calc(env(safe-area-inset-top, 0px) + 22px) 14px max(20px,env(safe-area-inset-bottom))}
   .rhead{display:flex;align-items:center;gap:10px;margin-bottom:10px}
   .rhead b{font-size:20px}
   .chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px}
@@ -156,11 +157,11 @@
   .rptl{display:flex;align-items:center;gap:8px;margin:12px 0 4px;font-size:12px;color:var(--sub)}
   .rptl input{flex:1;accent-color:var(--accent);height:32px}
   #replayModal{position:fixed;inset:0;z-index:46;background:var(--bg);overflow-y:auto;
-    padding:max(12px,env(safe-area-inset-top)) 14px max(20px,env(safe-area-inset-bottom))}
+    padding:calc(env(safe-area-inset-top, 0px) + 22px) 14px max(20px,env(safe-area-inset-bottom))}
   #clipModal{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px}
   #clipModal video{width:100%;max-height:75vh;background:#000;border-radius:12px}
   #clipModal .btns{display:flex;gap:10px}
-  #motionBanner{position:fixed;left:50%;top:calc(64px + env(safe-area-inset-top));transform:translateX(-50%);z-index:35;
+  #motionBanner{position:fixed;left:50%;top:calc(150px + env(safe-area-inset-top, 0px));transform:translateX(-50%);z-index:35;
     background:rgba(255,179,64,.95);color:#111;font-weight:700;border-radius:16px;padding:12px 18px;font-size:16px;
     box-shadow:0 6px 24px rgba(0,0,0,.4);white-space:nowrap}
 </style>
@@ -413,7 +414,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-16.18";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-16.19";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
