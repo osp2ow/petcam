@@ -156,6 +156,24 @@
   .t-sound.on{background:#3ddc84;border-color:#3ddc84;color:#0b2a17}
   .rptl{display:flex;align-items:center;gap:8px;margin:12px 0 4px;font-size:12px;color:var(--sub)}
   .rptl input{flex:1;accent-color:var(--accent);height:32px}
+  .rpkeep{display:flex;align-items:center;gap:8px;margin:2px 0 10px}
+  .rpkeep select{padding:6px 10px;border-radius:10px;font-size:13px}
+  .rpview{position:relative}
+  #rpStage{touch-action:none}
+  #rpWrap{position:absolute;inset:0;transform-origin:0 0;will-change:transform}
+  #rpTime{z-index:3;pointer-events:none}
+  .fsbtn{position:absolute;right:8px;top:8px;z-index:4;padding:6px 10px;font-size:13px;border-radius:10px}
+  /* 전체화면 모드 */
+  #replayModal.fs{padding:0;overflow:hidden;background:#000}
+  #replayModal.fs .rhead,#replayModal.fs #rpRanges,#replayModal.fs .rpkeep,#replayModal.fs #rpHint{display:none}
+  #replayModal.fs #rpStage{position:fixed;inset:0;aspect-ratio:auto;border-radius:0;z-index:1}
+  #replayModal.fs .fsbtn{position:fixed;z-index:5;top:calc(env(safe-area-inset-top,0px) + 12px);right:calc(env(safe-area-inset-right,0px) + 12px)}
+  #replayModal.fs #rpTime{top:calc(env(safe-area-inset-top,0px) + 14px);left:calc(env(safe-area-inset-left,0px) + 12px)}
+  #replayModal.fs .rpctl{position:fixed;left:0;right:0;bottom:0;z-index:4;
+    padding:24px calc(env(safe-area-inset-right,0px) + 14px) max(12px,env(safe-area-inset-bottom)) calc(env(safe-area-inset-left,0px) + 14px);
+    background:linear-gradient(transparent,rgba(0,0,0,.8));transition:opacity .25s}
+  #replayModal.fs .rpctl .tlctl{margin-bottom:0}
+  #replayModal.fs.hidectl .rpctl,#replayModal.fs.hidectl .fsbtn,#replayModal.fs.hidectl #rpTime{opacity:0;pointer-events:none}
   #replayModal{position:fixed;inset:0;z-index:46;background:var(--bg);overflow-y:auto;
     padding:calc(env(safe-area-inset-top, 0px) + 22px) 14px max(20px,env(safe-area-inset-bottom))}
   #clipModal{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px}
@@ -388,7 +406,19 @@
 <section id="replayModal" hidden>
   <div class="rhead"><b>최근 영상 다시보기</b><span class="spacer"></span><button id="rpClose">닫기</button></div>
   <div class="chips" id="rpRanges"></div>
-  <div class="tlbox" id="rpStage"><div class="cropbox" id="rpBox"><video id="rpVideo" playsinline></video></div><span class="pill" id="rpTime">-</span></div>
+  <div class="hint rpkeep">보관 시간
+    <select id="rpKeep"><option value="5">5분</option><option value="10">10분</option><option value="30">30분</option><option value="60">1시간</option></select>
+    <span id="rpKeepNote"></span>
+  </div>
+  <div class="rpview">
+    <div class="tlbox" id="rpStage">
+      <div id="rpWrap"><div class="cropbox" id="rpBox"><video id="rpVideo" playsinline></video></div></div>
+      <span class="pill" id="rpTime">-</span>
+      <div class="zoombadge" id="rpZoomBadge">1.0×</div>
+    </div>
+    <button id="rpFs" class="fsbtn">전체화면</button>
+  </div>
+  <div class="rpctl">
   <div class="rptl">
     <span id="rpFrom">-</span>
     <input type="range" id="rpRange" min="0" max="0" step="1" value="0">
@@ -399,7 +429,8 @@
     <select id="rpRate"><option value="1">1배속</option><option value="2">2배속</option><option value="4">4배속</option><option value="8">8배속</option></select>
     <span class="spacer"></span><button id="rpSave">저장</button>
   </div>
-  <div class="hint" id="rpHint">아래 막대를 끌어서 원하는 시각으로 이동할 수 있어요. 영상은 30초 단위로 불러와서, 밖에서 LTE로 보면 이동할 때마다 몇 초씩 걸릴 수 있어요.</div>
+  </div>
+  <div class="hint" id="rpHint">막대를 끌어서 원하는 시각으로 이동할 수 있어요. 영상 위에서 두 손가락으로 확대, 두 번 탭하면 2.5배 확대/원래대로. 아이폰을 가로로 돌리면 전체화면이 돼요.</div>
 </section>
 <div id="clipModal" hidden>
   <video id="clipVideo" playsinline controls></video>
@@ -414,7 +445,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-16.19";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-16.20";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -593,7 +624,7 @@ const motion = {
       enabled: true, sens: "mid", cooldown: 60, topic: "",
       quiet: false, qFrom: "23:00", qTo: "07:00",
       rec: false, rFrom: "00:00", rTo: "07:00", tlSec: 10, clips: true, clipSec: 30, keepDays: 3,
-      autoBlack: 60, replayMin: 10, deviceId: "", focusLock: false
+      autoBlack: 60, replayMin: 60, deviceId: "", focusLock: false
     },
     JSON.parse(localStorage.getItem("petcam_motion") || "{}")
   ),
@@ -603,6 +634,12 @@ const motion = {
   lastAt: 0, lastAlert: 0, lastBroadcast: 0, ignoreUntil: 0,
   sharpRef: 0   // 평소 화면 선명도 (초점 변화 감지용)
 };
+// 예전 기본값(10분)으로 저장돼 있던 '최근 영상 보관'을 한 번만 1시간으로 올림
+if (!localStorage.getItem("petcam_mig_replay60")) {
+  if (motion.cfg.replayMin === 10) motion.cfg.replayMin = 60;
+  localStorage.setItem("petcam_mig_replay60", "1");
+  localStorage.setItem("petcam_motion", JSON.stringify(motion.cfg));
+}
 function saveMotionCfg() { localStorage.setItem("petcam_motion", JSON.stringify(motion.cfg)); }
 function resetMotion(ms = 2500) { motion.bg = null; motion.hits = 0; motion.sharpRef = 0; motion.ignoreUntil = Date.now() + ms; }
 
@@ -2246,8 +2283,42 @@ $("vReplay").onclick = () => openReplay();
 const RP = { segs: [], all: [], i: 0, cache: new Map(), blob: null, token: 0 };
 function rpLayout() {
   const st = $("rpStage").getBoundingClientRect();
-  layoutCrop($("rpBox"), $("rpVideo"), view.info?.crop || null, st.width, st.height);
+  const v = $("rpVideo");
+  // 재생 영상은 원본 크기가 따로 있어서 그 크기 기준으로 구도 계산
+  const saved = view.info;
+  layoutCrop($("rpBox"), v, saved?.crop || null, st.width, st.height);
 }
+// 재생 화면 손가락 확대 (두 손가락 확대·이동, 두 번 탭 2.5배), 전체화면에서 한 번 탭하면 버튼 숨김
+const rpZoom = makeZoomable($("rpStage"), $("rpWrap"), $("rpZoomBadge"), () => {
+  if ($("replayModal").classList.contains("fs")) $("replayModal").classList.toggle("hidectl");
+});
+let rpAutoFs = false;
+function rpSetFs(on, auto) {
+  const m = $("replayModal");
+  m.classList.toggle("fs", on);
+  m.classList.remove("hidectl");
+  rpAutoFs = on && !!auto;
+  $("rpFs").textContent = on ? "작게 보기" : "전체화면";
+  rpZoom.reset(false);
+  requestAnimationFrame(rpLayout);
+  setTimeout(rpLayout, 300);
+}
+$("rpFs").onclick = () => rpSetFs(!$("replayModal").classList.contains("fs"));
+// 가로로 돌리면 자동 전체화면, 다시 세로로 돌리면 원래대로
+const landscapeMQ = window.matchMedia("(orientation: landscape)");
+function onOrient() {
+  if ($("replayModal").hidden) return;
+  if (landscapeMQ.matches) { if (!$("replayModal").classList.contains("fs")) rpSetFs(true, true); }
+  else if (rpAutoFs) rpSetFs(false);
+  setTimeout(rpLayout, 300);
+}
+(landscapeMQ.addEventListener ? landscapeMQ.addEventListener("change", onOrient) : landscapeMQ.addListener(onOrient));
+window.addEventListener("resize", () => { if (!$("replayModal").hidden) rpLayout(); });
+// 보관 시간 바로 바꾸기
+$("rpKeep").onchange = (e) => {
+  sendCtl({ t: "motionCfg", cfg: { replayMin: +e.target.value } });
+  $("rpKeepNote").textContent = "· 바꾼 시간만큼 지금부터 쌓여요";
+};
 ["loadedmetadata", "resize"].forEach((ev) => $("rpVideo").addEventListener(ev, rpLayout));
 async function rpGet(i) {
   const seg = RP.segs[i];
@@ -2342,6 +2413,9 @@ async function openReplay() {
   if (!(view.conn && view.conn.open)) return toast("카메라에 연결된 뒤 볼 수 있어요");
   if (view.info?.motion && !view.info.motion.replayMin) return toast("설정 → 최근 영상 다시보기 → '최근 영상 계속 보관'을 먼저 켜주세요");
   $("replayModal").hidden = false;
+  rpSetFs(landscapeMQ.matches, true);
+  $("rpKeep").value = String(view.info?.motion?.replayMin || 60);
+  $("rpKeepNote").textContent = "";
   $("rpRanges").innerHTML = "";
   $("rpTime").textContent = "목록 불러오는 중…";
   try { RP.all = await remoteRecords.listReplay(true); }
@@ -2377,6 +2451,7 @@ $("rpClose").onclick = () => {
   const v = $("rpVideo"); v.pause(); v.removeAttribute("src"); v.load();
   for (const p of RP.cache.values()) Promise.resolve(p).then((x) => x && URL.revokeObjectURL(x.url));
   RP.cache.clear(); RP.blob = null;
+  rpSetFs(false);
   $("replayModal").hidden = true;
 };
 $("vQuality").onchange = (e) => {
