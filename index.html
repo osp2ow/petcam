@@ -174,6 +174,21 @@
     background:linear-gradient(transparent,rgba(0,0,0,.8));transition:opacity .25s}
   #replayModal.fs .rpctl .tlctl{margin-bottom:0}
   #replayModal.fs.hidectl .rpctl,#replayModal.fs.hidectl .fsbtn,#replayModal.fs.hidectl #rpTime{opacity:0;pointer-events:none}
+  /* 기록 화면 확대·전체화면 */
+  #tlStage{touch-action:none}
+  #tlWrap{position:absolute;inset:0;transform-origin:0 0;will-change:transform}
+  #tlWrap img{width:100%;height:100%;object-fit:contain}
+  #tlTime{z-index:3;pointer-events:none}
+  #records.fs{padding:0;overflow:hidden;background:#000}
+  #records.fs .rhead,#records.fs #rSessions,#records.fs #rEmpty,#records.fs .rsub,#records.fs #rClips{display:none}
+  #records.fs #tlStage{position:fixed;inset:0;aspect-ratio:auto;border-radius:0;z-index:1}
+  #records.fs .fsbtn{position:fixed;z-index:5;top:calc(env(safe-area-inset-top,0px) + 12px);right:calc(env(safe-area-inset-right,0px) + 12px)}
+  #records.fs #tlTime{top:calc(env(safe-area-inset-top,0px) + 14px);left:calc(env(safe-area-inset-left,0px) + 12px)}
+  #records.fs #tlCtl{position:fixed;left:0;right:0;bottom:0;z-index:4;margin:0;
+    padding:24px calc(env(safe-area-inset-right,0px) + 14px) max(12px,env(safe-area-inset-bottom)) calc(env(safe-area-inset-left,0px) + 14px);
+    background:linear-gradient(transparent,rgba(0,0,0,.8));transition:opacity .25s}
+  #records.fs.hidectl #tlCtl,#records.fs.hidectl .fsbtn,#records.fs.hidectl #tlTime{opacity:0;pointer-events:none}
+  #replayModal.clipmode #rpRanges,#replayModal.clipmode .rpkeep{display:none}
   #replayModal{position:fixed;inset:0;z-index:46;background:var(--bg);overflow-y:auto;
     padding:calc(env(safe-area-inset-top, 0px) + 22px) 14px max(20px,env(safe-area-inset-bottom))}
   #clipModal{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px}
@@ -389,8 +404,15 @@
   <div class="chips" id="rSessions"></div>
   <div class="hint" id="rEmpty" hidden></div>
   <div id="rBody" hidden>
-    <div class="tlbox"><img id="tlImg" alt=""><span class="pill" id="tlTime">-</span></div>
-    <div class="tlctl">
+    <div class="rpview">
+      <div class="tlbox" id="tlStage">
+        <div id="tlWrap"><img id="tlImg" alt=""></div>
+        <span class="pill" id="tlTime">-</span>
+        <div class="zoombadge" id="tlZoomBadge">1.0×</div>
+      </div>
+      <button id="tlFs" class="fsbtn">전체화면</button>
+    </div>
+    <div class="tlctl" id="tlCtl">
       <button id="tlPlay">재생</button>
       <div class="tltrack"><input type="range" id="tlRange" min="0" max="0" value="0"><div id="tlMarks"></div></div>
       <select id="tlSpeed">
@@ -404,7 +426,7 @@
   </div>
 </section>
 <section id="replayModal" hidden>
-  <div class="rhead"><b>최근 영상 다시보기</b><span class="spacer"></span><button id="rpClose">닫기</button></div>
+  <div class="rhead"><b id="rpTitle">최근 영상 다시보기</b><span class="spacer"></span><button id="rpClose">닫기</button></div>
   <div class="chips" id="rpRanges"></div>
   <div class="hint rpkeep">보관 시간
     <select id="rpKeep"><option value="5">5분</option><option value="10">10분</option><option value="30">30분</option><option value="60">1시간</option></select>
@@ -432,10 +454,7 @@
   </div>
   <div class="hint" id="rpHint">막대를 끌어서 원하는 시각으로 이동할 수 있어요. 영상 위에서 두 손가락으로 확대, 두 번 탭하면 2.5배 확대/원래대로. 아이폰을 가로로 돌리면 전체화면이 돼요.</div>
 </section>
-<div id="clipModal" hidden>
-  <video id="clipVideo" playsinline controls></video>
-  <div class="btns"><button id="clipSave" class="on">저장</button><button id="clipClose">닫기</button></div>
-</div>
+
 
 <script>
 /* =====================================================================
@@ -445,7 +464,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-16.20";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-16.21";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -1118,7 +1137,12 @@ async function handleRpc(m, conn) {
   try {
     const result = await localRecords[m.method](...(m.args || []));
     if (result instanceof Blob) await sendBlobTo(conn, m.id, result);
-    else conn.send({ t: "rpcRes", id: m.id, result });
+    else {
+      const json = JSON.stringify(result ?? null);
+      // 한 번에 보낼 수 있는 크기(약 16KB)를 넘는 목록은 조각내서 전송
+      if (json.length > 12000) await sendBlobTo(conn, m.id, new Blob([json], { type: "application/json" }));
+      else conn.send({ t: "rpcRes", id: m.id, result });
+    }
   } catch (e) {
     conn.send({ t: "rpcRes", id: m.id, error: String(e.message || e) });
   }
@@ -1509,7 +1533,7 @@ async function startCamMode() {
   setInterval(() => {
     const sec = motion.cfg.autoBlack;
     if (!sec || cam.black || $("cam").hidden) return;
-    if (!$("sheetBack").hidden || !$("records").hidden || !$("clipModal").hidden) return;
+    if (!$("sheetBack").hidden || !$("records").hidden || !$("replayModal").hidden) return;
     if (Date.now() - cam.lastTouch > sec * 1000) setBlack(true);
   }, 1000);
 
@@ -2019,7 +2043,9 @@ function onRpcMessage(m) {
     if (!p.parts[m.seq]) { p.parts[m.seq] = b64ToBytes(m.data); p.got++; }
     if (p.got === m.total) {
       clearTimeout(p.timer); rpc.pending.delete(m.id);
-      p.resolve(new Blob(p.parts, { type: m.mime || "application/octet-stream" }));
+      const blob = new Blob(p.parts, { type: m.mime || "application/octet-stream" });
+      if ((m.mime || "").startsWith("application/json")) blob.text().then((t) => p.resolve(JSON.parse(t)), p.reject);
+      else p.resolve(blob);
     }
   }
 }
@@ -2061,6 +2087,7 @@ async function openRecords(api) {
     return;
   }
   $("rEmpty").hidden = true;
+  tlSetFs(landscapeMQ.matches, true);
   for (const s of sessions) {
     const b = document.createElement("button");
     b.textContent = `${fmtDate(s.start)}~ · 📷${s.frames} · 🎬${s.clips}`;
@@ -2077,7 +2104,9 @@ async function loadSession(sid, btn) {
   $("rBody").hidden = false;
   $("rClips").innerHTML = "";
   $("tlTime").textContent = "불러오는 중…";
-  const [frames, clips] = await Promise.all([R.api.listFrames(sid), R.api.listClips(sid)]);
+  let frames, clips;
+  try { [frames, clips] = await Promise.all([R.api.listFrames(sid), R.api.listClips(sid)]); }
+  catch (e) { if (R.session === sid) $("tlTime").textContent = "불러오지 못했어요: " + e.message + " (다시 눌러보세요)"; return; }
   if (R.session !== sid) return;
   R.frames = frames; R.clips = clips;
   const r = $("tlRange");
@@ -2185,30 +2214,23 @@ async function renderClips(sid) {
   }
 }
 
-async function playClip(c) {
+function playClip(c) {
   R.playing = false;
-  // 클립 시각에 맞춰 타임랩스 위치도 이동
-  const near = R.frames.findIndex((f) => f.ts >= c.ts);
+  const near = R.frames.findIndex((f) => f.ts >= c.ts);   // 클립 시각에 맞춰 타임랩스 위치도 이동
   if (near >= 0) showFrame(near);
-  toast("클립 불러오는 중…", null, null, 0);
-  try {
-    const blob = await R.api.getClip(c.id);
-    $("toast").hidden = true;
-    if (!blob) return toast("클립을 찾을 수 없어요");
-    R.clipBlob = blob;
-    R.clipName = `petcam_${stamp()}.${blob.type.includes("mp4") ? "mp4" : "webm"}`;
-    const v = $("clipVideo");
-    if (v.src) URL.revokeObjectURL(v.src);
-    v.src = URL.createObjectURL(blob);
-    $("clipModal").hidden = false;
-    v.play().catch(() => {});
-  } catch (e) {
-    toast("불러오기 실패: " + e.message);
-  }
+  openClipPlayer(R.api, R.clips, Math.max(0, R.clips.indexOf(c)));
 }
-$("clipSave").onclick = () => R.clipBlob && saveBlob(R.clipBlob, R.clipName);
-$("clipClose").onclick = () => { const v = $("clipVideo"); v.pause(); $("clipModal").hidden = true; };
-$("rClose").onclick = () => { resetPlayer(); $("records").hidden = true; };
+$("rClose").onclick = () => { resetPlayer(); tlSetFs(false); $("records").hidden = true; };
+let tlAutoFs = false, tlZoom = null;
+function tlSetFs(on, auto) {
+  const m = $("records");
+  m.classList.toggle("fs", on);
+  m.classList.remove("hidectl");
+  tlAutoFs = on && !!auto;
+  $("tlFs").textContent = on ? "작게 보기" : "전체화면";
+  tlZoom?.reset(false);
+}
+$("tlFs").onclick = () => tlSetFs(!$("records").classList.contains("fs"));
 $("rDelete").onclick = async () => {
   if (!R.session || !confirm("이 기록을 아이패드에서 삭제할까요?")) return;
   try { await R.api.deleteSession(R.session); toast("삭제했어요"); openRecords(R.api); }
@@ -2289,6 +2311,9 @@ function rpLayout() {
   layoutCrop($("rpBox"), v, saved?.crop || null, st.width, st.height);
 }
 // 재생 화면 손가락 확대 (두 손가락 확대·이동, 두 번 탭 2.5배), 전체화면에서 한 번 탭하면 버튼 숨김
+tlZoom = makeZoomable($("tlStage"), $("tlWrap"), $("tlZoomBadge"), () => {
+  if ($("records").classList.contains("fs")) $("records").classList.toggle("hidectl");
+});
 const rpZoom = makeZoomable($("rpStage"), $("rpWrap"), $("rpZoomBadge"), () => {
   if ($("replayModal").classList.contains("fs")) $("replayModal").classList.toggle("hidectl");
 });
@@ -2307,7 +2332,13 @@ $("rpFs").onclick = () => rpSetFs(!$("replayModal").classList.contains("fs"));
 // 가로로 돌리면 자동 전체화면, 다시 세로로 돌리면 원래대로
 const landscapeMQ = window.matchMedia("(orientation: landscape)");
 function onOrient() {
-  if ($("replayModal").hidden) return;
+  if ($("replayModal").hidden) {
+    if (!$("records").hidden && !$("rBody").hidden) {
+      if (landscapeMQ.matches) { if (!$("records").classList.contains("fs")) tlSetFs(true, true); }
+      else if (tlAutoFs) tlSetFs(false);
+    }
+    return;
+  }
   if (landscapeMQ.matches) { if (!$("replayModal").classList.contains("fs")) rpSetFs(true, true); }
   else if (rpAutoFs) rpSetFs(false);
   setTimeout(rpLayout, 300);
@@ -2324,7 +2355,7 @@ async function rpGet(i) {
   const seg = RP.segs[i];
   if (!seg) return null;
   if (RP.cache.has(seg.id)) return RP.cache.get(seg.id);
-  const p = remoteRecords.getReplay(seg.id).then((b) => b && { url: URL.createObjectURL(b), blob: b });
+  const p = RP.fetch(seg.id).then((b) => b && { url: URL.createObjectURL(b), blob: b });
   RP.cache.set(seg.id, p);
   if (RP.cache.size > 4) {     // 오래된 조각은 메모리에서 정리
     const k = RP.cache.keys().next().value;
@@ -2395,8 +2426,11 @@ $("rpRange").addEventListener("change", (e) => {
 });
 function rpStart(min) {
   const from = min ? Date.now() - min * 60000 : 0;
-  RP.segs = RP.all.filter((s) => s.ts + s.dur * 1000 >= from);
   [...$("rpRanges").children].forEach((b) => b.classList.toggle("on", +b.dataset.min === min));
+  rpUseSegs(RP.all.filter((s) => s.ts + s.dur * 1000 >= from), 0);
+}
+function rpUseSegs(segs, startIdx) {
+  RP.segs = segs;
   if (!RP.segs.length) { $("rpTime").textContent = "이 구간에 저장된 영상이 없어요"; return; }
   RP.off = []; let acc = 0;
   for (const sgm of RP.segs) { RP.off.push(acc); acc += sgm.dur; }
@@ -2407,11 +2441,31 @@ function rpStart(min) {
   const last = RP.segs[RP.segs.length - 1];
   $("rpTo").textContent = timeStr(last.ts + last.dur * 1000);
   RP.paused = false;
-  rpPlay(0);
+  rpPlay(startIdx || 0);
+}
+function rpResetCache() {
+  RP.token++;
+  for (const p of RP.cache.values()) Promise.resolve(p).then((x) => x && URL.revokeObjectURL(x.url));
+  RP.cache.clear(); RP.blob = null;
+}
+// 기록의 움직임 클립을 재생 화면(전체화면·확대·막대 이동)으로 보기
+function openClipPlayer(api, clips, idx) {
+  rpResetCache();
+  RP.fetch = (id) => api.getClip(id);
+  $("replayModal").classList.add("clipmode");
+  $("rpTitle").textContent = "움직임 클립";
+  $("replayModal").hidden = false;
+  rpSetFs(landscapeMQ.matches, true);
+  RP.all = clips;
+  rpUseSegs(clips, idx);
 }
 async function openReplay() {
   if (!(view.conn && view.conn.open)) return toast("카메라에 연결된 뒤 볼 수 있어요");
   if (view.info?.motion && !view.info.motion.replayMin) return toast("설정 → 최근 영상 다시보기 → '최근 영상 계속 보관'을 먼저 켜주세요");
+  rpResetCache();
+  RP.fetch = (id) => remoteRecords.getReplay(id);
+  $("replayModal").classList.remove("clipmode");
+  $("rpTitle").textContent = "최근 영상 다시보기";
   $("replayModal").hidden = false;
   rpSetFs(landscapeMQ.matches, true);
   $("rpKeep").value = String(view.info?.motion?.replayMin || 60);
