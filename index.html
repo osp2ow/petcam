@@ -68,6 +68,8 @@
   /* ---------- 뷰어(아이폰) ---------- */
   #stage{position:absolute;inset:0;touch-action:none;overflow:hidden}
   #remoteWrap{position:absolute;inset:0;overflow:hidden;transform-origin:0 0;will-change:transform}
+  .cropbox{position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden}
+  .cropbox video{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;background:#000}
   #remote{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;
     transform-origin:0 0;will-change:transform;background:#000}
   .zoombadge{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:28px;font-weight:700;
@@ -126,6 +128,8 @@
   .clip .th{aspect-ratio:16/9;background:#000 center/cover no-repeat}
   .clip .meta{padding:8px 10px;font-size:13px}
   .clip .meta small{color:var(--sub)}
+  #replayModal{position:fixed;inset:0;z-index:46;background:var(--bg);overflow-y:auto;
+    padding:max(12px,env(safe-area-inset-top)) 14px max(20px,env(safe-area-inset-bottom))}
   #clipModal{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px}
   #clipModal video{width:100%;max-height:75vh;background:#000;border-radius:12px}
   #clipModal .btns{display:flex;gap:10px}
@@ -194,7 +198,7 @@
 
 <!-- ================= 뷰어 모드 (아이폰) ================= -->
 <section id="view" class="screen" hidden>
-  <div id="stage"><div id="remoteWrap"><video id="remote" playsinline autoplay muted></video></div></div>
+  <div id="stage"><div id="remoteWrap"><div class="cropbox" id="cropBox"><video id="remote" playsinline autoplay muted></video></div></div></div>
   <div id="overlayMsg"><div class="spin"></div><div id="overlayText">카메라에 연결 중…</div></div>
   <div class="zoombadge" id="zoomBadge">1.0×</div>
 
@@ -202,6 +206,7 @@
     <span class="pill"><span class="dot wait" id="viewDot"></span><span id="viewStatus">연결 중</span></span>
     <span class="pill" id="stats">-</span>
     <span class="pill fixed-badge" id="vCropPill" hidden>📌 구도 고정</span>
+    <span class="pill" id="vScore" hidden>🐾 -</span>
     <span class="spacer"></span>
     <span class="pill" id="recPill" hidden>● <span id="recTime">00:00</span></span>
   </div>
@@ -213,6 +218,7 @@
     <button id="vRec">⏺ 녹화</button>
     <button id="vMotion">⚙️</button>
     <button id="vRecords">📼</button>
+    <button id="vReplay">⏪</button>
     <button id="vFlip">🔄</button>
     <select id="vQuality">
       <option value="720">720p</option>
@@ -267,6 +273,22 @@
     </label>
     <button id="mBlackNow">🌙 지금 아이패드 화면 끄기</button>
     <div class="hint">꺼진 화면은 탭하면 다시 켜져요. 송출·감지·기록은 계속돼요. 밝기를 최저로 해두면 더 어두워져요.</div>
+
+    <div class="sec">📷 카메라</div>
+    <label class="row"><span>렌즈 선택</span><select id="mDevice"></select></label>
+    <label class="row"><span>초점 고정</span><input type="checkbox" id="mFocus"></label>
+    <div class="hint" id="mFocusNote">초점이 계속 바뀌거나 화면이 튀면, 렌즈를 '듀얼·트리플'이 아닌 그냥 <b>'후면 카메라'</b>로 고르고 초점 고정을 켜보세요.</div>
+
+    <div class="sec">⏪ 최근 영상 다시보기</div>
+    <label class="row"><span>최근 영상 계속 보관</span>
+      <select id="mReplay">
+        <option value="0">끄기</option>
+        <option value="5">5분</option>
+        <option value="10">10분</option>
+        <option value="30">30분</option>
+      </select>
+    </label>
+    <div class="hint">아이패드가 블랙박스처럼 최근 영상을 계속 덮어쓰며 보관해요. 아이폰 ⏪ 버튼으로 볼 수 있어요.</div>
 
     <div class="sec">📼 자동 기록</div>
     <label class="row"><span>켜기</span><input type="checkbox" id="mRec"></label>
@@ -331,6 +353,17 @@
     <div class="clips" id="rClips"></div>
   </div>
 </section>
+<section id="replayModal" hidden>
+  <div class="rhead"><b>⏪ 최근 영상</b><span class="spacer"></span><button id="rpClose">닫기</button></div>
+  <div class="chips" id="rpRanges"></div>
+  <div class="tlbox" id="rpStage"><div class="cropbox" id="rpBox"><video id="rpVideo" playsinline></video></div><span class="pill" id="rpTime">-</span></div>
+  <div class="tlctl">
+    <button id="rpPrev">⏮</button><button id="rpPlay">⏸</button><button id="rpNext">⏭</button>
+    <select id="rpRate"><option value="1">1배속</option><option value="2">2배속</option><option value="4">4배속</option><option value="8">8배속</option></select>
+    <span class="spacer"></span><button id="rpSave">저장</button>
+  </div>
+  <div class="hint" id="rpHint">30초 단위 조각으로 이어서 재생돼요. 밖에서 LTE로 보면 조각마다 몇 초씩 불러올 수 있어요.</div>
+</section>
 <div id="clipModal" hidden>
   <video id="clipVideo" playsinline controls></video>
   <div class="btns"><button id="clipSave" class="on">저장</button><button id="clipClose">닫기</button></div>
@@ -344,7 +377,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-15.13";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-15.14";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -523,7 +556,7 @@ const motion = {
       enabled: true, sens: "mid", cooldown: 60, topic: "",
       quiet: false, qFrom: "23:00", qTo: "07:00",
       rec: false, rFrom: "00:00", rTo: "07:00", tlSec: 10, clips: true, clipSec: 30, keepDays: 3,
-      autoBlack: 60
+      autoBlack: 60, replayMin: 10, deviceId: "", focusLock: false
     },
     JSON.parse(localStorage.getItem("petcam_motion") || "{}")
   ),
@@ -547,6 +580,12 @@ function applyMotionCfg(cfg) {
   if ([15, 30, 60].includes(+cfg.clipSec)) motion.cfg.clipSec = +cfg.clipSec;
   if ([1, 3, 7].includes(+cfg.keepDays)) motion.cfg.keepDays = +cfg.keepDays;
   if (cfg.autoBlack !== undefined && [0, 30, 60, 180].includes(+cfg.autoBlack)) motion.cfg.autoBlack = +cfg.autoBlack;
+  if (cfg.replayMin !== undefined && [0, 5, 10, 30].includes(+cfg.replayMin)) motion.cfg.replayMin = +cfg.replayMin;
+  let camChanged = false, focusChanged = false;
+  if (typeof cfg.deviceId === "string" && cfg.deviceId !== motion.cfg.deviceId) { motion.cfg.deviceId = cfg.deviceId; camChanged = true; }
+  if (typeof cfg.focusLock === "boolean" && cfg.focusLock !== motion.cfg.focusLock) { motion.cfg.focusLock = cfg.focusLock; focusChanged = true; }
+  if (camChanged && cam.stream) { saveMotionCfg(); if (cam.crop) clearCrop(false); restartVideo(); }
+  else if (focusChanged && cam.stream) { saveMotionCfg(); applyFocusLock(); }
   saveMotionCfg();
   resetMotion();
   broadcastInfo();
@@ -604,6 +643,11 @@ function motionTick() {
   }
 
   // 2) 16×9 칸으로 나눠서, 칸 안의 30% 이상이 변한 칸만 "움직인 칸"으로 셈 (움직임은 한곳에 뭉쳐서 생김)
+  //    변화 기준은 화면 노이즈 수준에 맞춰 자동 조절 (어두워서 노이즈가 많으면 높게, 깨끗하면 낮게 → 톱밥색 햄스터도 잡힘)
+  const diff = new Float32Array(n);
+  let absSum = 0;
+  for (let i = 0; i < n; i++) { diff[i] = Math.abs(g[i] - motion.bg[i] - off); absSum += diff[i]; }
+  const pixTh = Math.min(26, Math.max(8, (absSum / n) * 3));
   const cols = 16, rows = 9;
   const cellChanged = new Uint16Array(cols * rows), cellTotal = new Uint16Array(cols * rows);
   for (let y = 0; y < h; y++) {
@@ -612,16 +656,16 @@ function motionTick() {
       const c = Math.min(cols - 1, Math.floor(x * cols / w));
       const i = y * w + x, k = r * cols + c;
       cellTotal[k]++;
-      if (Math.abs(g[i] - motion.bg[i] - off) > 26) cellChanged[k]++;
+      if (diff[i] > pixTh) cellChanged[k]++;
       motion.bg[i] = motion.bg[i] * 0.85 + g[i] * 0.15;   // 배경을 천천히 갱신
     }
   }
   let active = 0;
-  for (let k = 0; k < cols * rows; k++) if (cellTotal[k] && cellChanged[k] / cellTotal[k] > 0.3) active++;
+  for (let k = 0; k < cols * rows; k++) if (cellTotal[k] && cellChanged[k] / cellTotal[k] > 0.2) active++;
   const score = active / (cols * rows);
 
-  // 3) 화면 절반 이상이 한꺼번에 변하면 → 초점·노출·렌즈 전환 같은 카메라 자체 조정으로 보고 무시
-  if (score > 0.5) {
+  // 3) 화면 40% 이상이 한꺼번에 변하면 → 초점·노출·렌즈 전환 같은 카메라 자체 조정으로 보고 무시
+  if (score > 0.4) {
     motion.bg = g; motion.hits = 0; motion.score = 0;
     motion.ignoreUntil = Date.now() + 2500;
     updateMotionPill();
@@ -736,12 +780,13 @@ let dbPromise = null;
 function idb() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
-    const r = indexedDB.open("petcam", 1);
+    const r = indexedDB.open("petcam", 2);
     r.onupgradeneeded = () => {
-      const d = r.result;
-      d.createObjectStore("frames", { keyPath: "id" }).createIndex("session", "session");
-      d.createObjectStore("clips", { keyPath: "id" }).createIndex("session", "session");
-      d.createObjectStore("sessions", { keyPath: "id" });
+      const d = r.result, has = (n) => d.objectStoreNames.contains(n);
+      if (!has("frames")) d.createObjectStore("frames", { keyPath: "id" }).createIndex("session", "session");
+      if (!has("clips")) d.createObjectStore("clips", { keyPath: "id" }).createIndex("session", "session");
+      if (!has("sessions")) d.createObjectStore("sessions", { keyPath: "id" });
+      if (!has("replay")) d.createObjectStore("replay", { keyPath: "id" });
     };
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
@@ -804,6 +849,12 @@ const localRecords = {
   async getClip(id) { return (await idbGet("clips", id))?.blob || null; },
   async getThumb(id) { return (await idbGet("clips", id))?.thumb || null; },
   async deleteSession(sid) { await idbDeleteSession(sid); return true; },
+  async listReplay(flush) {
+    if (flush && replay.rec) { replayRotate(); await sleep(1800); }   // 지금 녹화 중인 부분까지 포함
+    const keys = (await idbReq("replay", "readonly", (s) => s.getAllKeys())) || [];
+    return keys.map((k) => { const [ts, dur] = String(k).split("_"); return { id: k, ts: +ts, dur: +dur }; }).sort((a, b) => a.ts - b.ts);
+  },
+  async getReplay(id) { return (await idbGet("replay", id))?.blob || null; },
   async storageInfo() {
     try { const e = await navigator.storage.estimate(); return { used: e.usage || 0, quota: e.quota || 0 }; }
     catch (_) { return null; }
@@ -872,6 +923,48 @@ function updateRecPill() {
     : `📼 ${motion.cfg.rFrom}~${motion.cfg.rTo} 대기`;
 }
 
+/* ---------- 최근 영상 계속 보관 (블랙박스): 30초 단위 조각으로 저장, 설정한 시간만큼만 유지 ---------- */
+const replay = { rec: null, startAt: 0 };
+function replayStart() {
+  if (!motion.cfg.replayMin || replay.rec) return;
+  const tracks = [camVideoTrack(), ...(cam.stream?.getAudioTracks() || [])].filter((t) => t && t.readyState === "live");
+  if (!tracks.length || !window.MediaRecorder) return;
+  const mime = pickRecMime();
+  let r;
+  try { r = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType: mime, videoBitsPerSecond: 2_000_000 } : undefined); }
+  catch (e) { console.warn("replay", e); return; }
+  const seg = { startAt: Date.now(), chunks: [] };
+  r.ondataavailable = (e) => { if (e.data.size) seg.chunks.push(e.data); };
+  r.onstop = async () => {
+    const blob = new Blob(seg.chunks, { type: r.mimeType || mime || "video/mp4" });
+    const dur = Math.max(1, Math.round((Date.now() - seg.startAt) / 1000));
+    if (blob.size) { try { await idbPut("replay", { id: `${seg.startAt}_${dur}`, blob }); } catch (e) { console.warn("replay save", e); } }
+  };
+  r.start(1000);
+  replay.rec = r; replay.startAt = seg.startAt;
+}
+function replayRotate() {
+  const old = replay.rec;
+  replay.rec = null;
+  replayStart();                       // 새 조각을 먼저 시작해서 빈틈 최소화
+  try { old?.stop(); } catch (_) {}
+}
+async function pruneReplay() {
+  try {
+    const keep = Date.now() - (motion.cfg.replayMin || 0) * 60000 - 60000;
+    const keys = (await idbReq("replay", "readonly", (s) => s.getAllKeys())) || [];
+    const old = keys.filter((k) => +String(k).split("_")[0] < keep);
+    if (old.length) await idbReq("replay", "readwrite", (s) => { old.forEach((k) => s.delete(k)); return null; });
+  } catch (_) {}
+}
+function replayTick() {
+  if (!motion.cfg.replayMin) {
+    if (replay.rec) { try { replay.rec.stop(); } catch (_) {} replay.rec = null; }
+  } else if (!replay.rec) replayStart();
+  else if (Date.now() - replay.startAt >= 30000) replayRotate();
+  pruneReplay();
+}
+
 let recBusy = false;
 async function recTick() {
   if (recBusy) return;
@@ -926,7 +1019,7 @@ async function sendBlobTo(conn, id, blob) {
     while (conn.dataChannel && conn.dataChannel.bufferedAmount > 2 * 1024 * 1024) await sleep(20);
   }
 }
-const RPC_METHODS = ["listSessions", "listFrames", "listClips", "getFrame", "getClip", "getThumb", "deleteSession", "storageInfo"];
+const RPC_METHODS = ["listSessions", "listFrames", "listClips", "getFrame", "getClip", "getThumb", "deleteSession", "storageInfo", "listReplay", "getReplay"];
 async function handleRpc(m, conn) {
   if (!conn || !RPC_METHODS.includes(m.method)) return;
   try {
@@ -1032,21 +1125,57 @@ function camIdleStatus() {
   else camSetStatus("대기 중 (시청자 없음)", "wait");
 }
 
-function videoConstraints() {
+function videoConstraints(noDevice) {
   const q = QUALITY[cam.quality];
-  return { facingMode: cam.facing, width: { ideal: q.w }, height: { ideal: q.h }, frameRate: { ideal: 30 } };
+  const base = { width: { ideal: q.w }, height: { ideal: q.h }, frameRate: { ideal: 30 } };
+  if (motion.cfg.deviceId && !noDevice) return { ...base, deviceId: { exact: motion.cfg.deviceId } };
+  return { ...base, facingMode: cam.facing };
+}
+// 고른 렌즈가 없으면(기기 변경 등) 기본 카메라로
+async function getVideo(withAudio) {
+  const audio = withAudio ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true } : false;
+  try { return await navigator.mediaDevices.getUserMedia({ video: videoConstraints(), audio }); }
+  catch (e) {
+    if (e.name === "NotAllowedError") throw e;
+    if (motion.cfg.deviceId) {
+      motion.cfg.deviceId = ""; saveMotionCfg();
+      return await navigator.mediaDevices.getUserMedia({ video: videoConstraints(true), audio });
+    }
+    throw e;
+  }
+}
+async function loadDevices() {
+  try {
+    const list = await navigator.mediaDevices.enumerateDevices();
+    cam.devices = list.filter((d) => d.kind === "videoinput").map((d, i) => ({ id: d.deviceId, label: d.label || `카메라 ${i + 1}` }));
+  } catch (_) { cam.devices = []; }
+}
+function focusModes() {
+  try { return camVideoTrack()?.getCapabilities?.().focusMode || []; } catch (_) { return []; }
+}
+async function applyFocusLock() {
+  const t = camVideoTrack();
+  if (!t) return;
+  const modes = focusModes();
+  try {
+    if (motion.cfg.focusLock) {
+      await sleep(1500);   // 먼저 초점을 한 번 잡게 한 뒤 고정
+      if (modes.includes("manual")) await t.applyConstraints({ advanced: [{ focusMode: "manual" }] });
+      else if (modes.includes("single-shot")) await t.applyConstraints({ advanced: [{ focusMode: "single-shot" }] });
+    } else if (modes.includes("continuous")) {
+      await t.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
+    }
+  } catch (e) { console.warn("focus", e); }
+  resetMotion(2500);
+  broadcastInfo();
 }
 
 async function openCamera() {
   try {
-    return await navigator.mediaDevices.getUserMedia({
-      video: videoConstraints(),
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-    });
+    return await getVideo(true);
   } catch (e) {
     if (e.name === "NotAllowedError") throw e;
-    // 마이크만 문제면 영상만
-    return await navigator.mediaDevices.getUserMedia({ video: videoConstraints(), audio: false });
+    return await getVideo(false);   // 마이크만 문제면 영상만
   }
 }
 
@@ -1070,12 +1199,15 @@ function camInfo() {
     zoom,
     black: cam.black,
     crop: cam.crop,
+    devices: cam.devices || [],
+    focusModes: focusModes(),
     ver: APP_VERSION,
     motion: { ...motion.cfg, lastAt: motion.lastAt }
   };
 }
 
 function updateCamHud() {
+  sendAll({ t: "score", v: motion.cfg.enabled || rec.session ? motion.score : -1, at: motion.lastAt });
   const info = camInfo();
   const fps = Math.round(camVideoTrack()?.getSettings?.().frameRate || 0);
   $("camRes").textContent = (info.res || "-") + (fps ? ` · ${fps}fps` : "");
@@ -1123,7 +1255,7 @@ async function restartVideo() {
   if (old) { old.stop(); cam.stream.removeTrack(old); }
   let ns;
   try {
-    ns = await navigator.mediaDevices.getUserMedia({ video: videoConstraints(), audio: false });
+    ns = await getVideo(false);
   } catch (e) {
     camSetStatus("카메라 열기 실패", "bad");
     return;
@@ -1138,6 +1270,8 @@ async function restartVideo() {
   }
   cam.zoom = 1;
   resetMotion(3000);
+  if (motion.cfg.focusLock) applyFocusLock();
+  replayRotate();
   setTimeout(broadcastInfo, 300);
 }
 
@@ -1148,6 +1282,7 @@ function handleCamMessage(m, conn) {
   else if (m.t === "flip") {
     cam.facing = cam.facing === "environment" ? "user" : "environment";
     localStorage.setItem("petcam_facing", cam.facing);
+    if (motion.cfg.deviceId) { motion.cfg.deviceId = ""; saveMotionCfg(); }
     if (cam.crop) clearCrop(false);
     restartVideo();
   } else if (m.t === "quality" && QUALITY[m.v]) {
@@ -1269,6 +1404,10 @@ async function startCamMode() {
   setInterval(updateCamHud, 2000);
   try { navigator.storage?.persist?.(); } catch (_) {}
   setInterval(recTick, 1000);
+  await loadDevices();
+  if (motion.cfg.focusLock) applyFocusLock();
+  replayStart();
+  setInterval(replayTick, 5000);
   updateRecPill();
 
   // 손 안 대면 자동으로 화면 끄기
@@ -1381,6 +1520,11 @@ function connectToCam() {
     else if (m.t === "motion") onMotionEvent(m);
     else if (m.t === "toast") toast(m.text);
     else if (m.t === "rpcRes" || m.t === "rpcChunk") onRpcMessage(m);
+    else if (m.t === "score") {
+      const el = $("vScore");
+      el.hidden = false;
+      el.textContent = m.v < 0 ? "🐾 감지 꺼짐" : `🐾 ${(m.v * 100).toFixed(1)}%` + (m.at ? ` · 최근 ${timeStr(m.at)}` : "");
+    }
   });
   conn.on("close", () => { if (view.conn === conn) onLost(); });
   conn.on("error", () => { if (view.conn === conn) onLost(); });
@@ -1594,24 +1738,32 @@ function makeZoomable(stageEl, targetEl, badgeEl, onTap) {
 }
 const viewZoom = makeZoomable($("stage"), $("remoteWrap"), $("zoomBadge"), () => $("view").classList.toggle("hide-ui"));
 
-// 아이패드에서 고정한 구도대로 아이폰 화면을 확대 (구도 밖은 잘라냄)
-function applyViewCrop() {
-  const v = $("remote"), c = view.info?.crop;
-  $("vCropPill").hidden = !c;
-  if (!c || !v.videoWidth) {
-    v.style.transform = ""; v.style.clipPath = ""; v.style.webkitClipPath = "";
+// 고정 구도대로 보여주기: 영상 자체에 효과를 거는 대신, 구도 크기의 상자 안에 큰 영상을 배치해서 잘라냄
+function parseRes(str) { const m = /(\d+)\D+(\d+)/.exec(str || ""); return m ? [+m[1], +m[2]] : [0, 0]; }
+function layoutCrop(box, vid, crop, W, H) {
+  let vw = vid.videoWidth, vh = vid.videoHeight;
+  if (!vw || !vh) [vw, vh] = parseRes(view.info?.res);
+  if (!crop || !vw || !vh || !W || !H) {
+    box.style.left = "0px"; box.style.top = "0px"; box.style.width = "100%"; box.style.height = "100%";
+    vid.style.left = "0px"; vid.style.top = "0px"; vid.style.width = "100%"; vid.style.height = "100%";
+    vid.style.objectFit = "contain";
     return;
   }
+  const cw = crop.size * vw, ch = crop.size * vh;
+  const k = Math.min(W / cw, H / ch);
+  const bw = cw * k, bh = ch * k;
+  box.style.left = (W - bw) / 2 + "px"; box.style.top = (H - bh) / 2 + "px";
+  box.style.width = bw + "px"; box.style.height = bh + "px";
+  vid.style.objectFit = "fill";
+  vid.style.width = vw * k + "px"; vid.style.height = vh * k + "px";
+  vid.style.left = -(crop.cx - crop.size / 2) * vw * k + "px";
+  vid.style.top = -(crop.cy - crop.size / 2) * vh * k + "px";
+}
+function applyViewCrop() {
+  const c = view.info?.crop || null;
+  $("vCropPill").hidden = !c;
   const st = $("stage").getBoundingClientRect();
-  const W = st.width, H = st.height;
-  const { cw, ch, ox, oy } = fitBox(W, H, v.videoWidth, v.videoHeight);
-  const left = ox + (c.cx - c.size / 2) * cw, top = oy + (c.cy - c.size / 2) * ch;
-  const w = c.size * cw, h = c.size * ch;
-  const k = Math.min(W / w, H / h);
-  const tx = W / 2 - k * (left + w / 2), ty = H / 2 - k * (top + h / 2);
-  const clip = `inset(${top}px ${W - left - w}px ${H - top - h}px ${left}px)`;
-  v.style.clipPath = clip; v.style.webkitClipPath = clip;
-  v.style.transform = `translate(${tx}px,${ty}px) scale(${k})`;
+  layoutCrop($("cropBox"), $("remote"), c, st.width, st.height);
 }
 ["loadedmetadata", "resize"].forEach((ev) => $("remote").addEventListener(ev, applyViewCrop));
 window.addEventListener("resize", applyViewCrop);
@@ -1641,6 +1793,21 @@ function fillSheet(cfg, fromRemote) {
   set("mClipSec", "value", String(cfg.clipSec || 30));
   set("mKeep", "value", String(cfg.keepDays || 3));
   set("mAutoBlack", "value", String(cfg.autoBlack ?? 60));
+  set("mReplay", "value", String(cfg.replayMin ?? 10));
+  set("mFocus", "checked", !!cfg.focusLock);
+  const info = sheetMode === "cam" ? { devices: cam.devices || [], focusModes: focusModes() } : (view.info || {});
+  const sel = $("mDevice");
+  if (sel !== document.activeElement) {
+    sel.innerHTML = "";
+    const add = (v, t) => { const o = document.createElement("option"); o.value = v; o.textContent = t; sel.appendChild(o); };
+    add("", "자동 (기본)");
+    for (const d of info.devices || []) add(d.id, d.label);
+    sel.value = cfg.deviceId || "";
+  }
+  const fm = info.focusModes || [];
+  $("mFocusNote").innerHTML = (fm.includes("manual") || fm.includes("single-shot"))
+    ? "초점 고정을 지원하는 카메라예요. 켜면 초점을 한 번 잡은 뒤 고정해요. 초점이 계속 바뀌면 렌즈를 <b>'후면 카메라'</b>(듀얼·트리플 아닌 것)로도 바꿔보세요."
+    : "이 아이패드 Safari는 초점 고정을 지원하지 않아요. 대신 렌즈를 <b>'후면 카메라'</b>(듀얼·트리플 아닌 것)로 고르면 렌즈가 바뀌면서 화면이 튀는 걸 막을 수 있어요.";
   updateBlackBtn();
   $("mLast").textContent = cfg.lastAt ? `마지막 감지: ${timeStr(cfg.lastAt)}` : "아직 감지된 움직임이 없어요";
 }
@@ -1658,7 +1825,8 @@ function sheetChanged() {
     quiet: $("mQuiet").checked, qFrom: $("mQFrom").value, qTo: $("mQTo").value,
     rec: $("mRec").checked, rFrom: $("mRFrom").value, rTo: $("mRTo").value,
     tlSec: +$("mTl").value, clips: $("mClips").checked, clipSec: +$("mClipSec").value, keepDays: +$("mKeep").value,
-    autoBlack: +$("mAutoBlack").value
+    autoBlack: +$("mAutoBlack").value, replayMin: +$("mReplay").value,
+    deviceId: $("mDevice").value, focusLock: $("mFocus").checked
   };
   if (sheetMode === "cam") { applyMotionCfg({ ...cfg, topic: $("mTopic").value }); recTick(); }
   else {
@@ -1667,7 +1835,7 @@ function sheetChanged() {
     sendCtl({ t: "motionCfg", cfg });
   }
 }
-["mEnabled", "mSens", "mCooldown", "mTopic", "mQuiet", "mQFrom", "mQTo", "mRec", "mRFrom", "mRTo", "mTl", "mClips", "mClipSec", "mKeep", "mAutoBlack"].forEach((id) => $(id).addEventListener("change", sheetChanged));
+["mEnabled", "mSens", "mCooldown", "mTopic", "mQuiet", "mQFrom", "mQTo", "mRec", "mRFrom", "mRTo", "mTl", "mClips", "mClipSec", "mKeep", "mAutoBlack", "mReplay", "mDevice", "mFocus"].forEach((id) => $(id).addEventListener("change", sheetChanged));
 $("mTest").onclick = async () => {
   if (sheetMode === "cam") {
     toast("보내는 중…");
@@ -2017,6 +2185,102 @@ $("vRec").onclick = () => {
 
 $("vMotion").onclick = () => openSheet("view");
 $("vRecords").onclick = () => openRecords(remoteRecords);
+$("vReplay").onclick = () => openReplay();
+
+/* ---------- 최근 영상 플레이어 (아이폰) ---------- */
+const RP = { segs: [], all: [], i: 0, cache: new Map(), blob: null, token: 0 };
+function rpLayout() {
+  const st = $("rpStage").getBoundingClientRect();
+  layoutCrop($("rpBox"), $("rpVideo"), view.info?.crop || null, st.width, st.height);
+}
+["loadedmetadata", "resize"].forEach((ev) => $("rpVideo").addEventListener(ev, rpLayout));
+async function rpGet(i) {
+  const seg = RP.segs[i];
+  if (!seg) return null;
+  if (RP.cache.has(seg.id)) return RP.cache.get(seg.id);
+  const p = remoteRecords.getReplay(seg.id).then((b) => b && { url: URL.createObjectURL(b), blob: b });
+  RP.cache.set(seg.id, p);
+  if (RP.cache.size > 4) {     // 오래된 조각은 메모리에서 정리
+    const k = RP.cache.keys().next().value;
+    Promise.resolve(RP.cache.get(k)).then((x) => x && URL.revokeObjectURL(x.url));
+    RP.cache.delete(k);
+  }
+  return p;
+}
+async function rpPlay(i) {
+  if (i < 0 || i >= RP.segs.length) return;
+  const tok = ++RP.token;
+  RP.i = i;
+  const seg = RP.segs[i];
+  $("rpTime").textContent = `${timeStr(seg.ts)} · ${i + 1}/${RP.segs.length} 불러오는 중…`;
+  let x;
+  try { x = await rpGet(i); } catch (e) { $("rpTime").textContent = "불러오기 실패: " + e.message; return; }
+  if (tok !== RP.token || !x) return;
+  RP.blob = x.blob;
+  const v = $("rpVideo");
+  v.src = x.url;
+  v.playbackRate = +$("rpRate").value;
+  v.play().catch(() => {});
+  $("rpPlay").textContent = "⏸";
+  $("rpTime").textContent = `${timeStr(seg.ts)} · ${i + 1}/${RP.segs.length}`;
+  rpGet(i + 1);   // 다음 조각 미리 받기
+}
+$("rpVideo").addEventListener("playing", () => { $("rpVideo").playbackRate = +$("rpRate").value; });
+$("rpVideo").addEventListener("timeupdate", () => {
+  const seg = RP.segs[RP.i], v = $("rpVideo");
+  if (seg && !v.paused) $("rpTime").textContent = `${timeStr(seg.ts + v.currentTime * 1000)} · ${RP.i + 1}/${RP.segs.length}`;
+});
+$("rpVideo").addEventListener("ended", () => {
+  if (RP.i < RP.segs.length - 1) rpPlay(RP.i + 1);
+  else { $("rpTime").textContent = "끝까지 봤어요"; $("rpPlay").textContent = "▶"; }
+});
+function rpStart(min) {
+  const from = Date.now() - min * 60000;
+  RP.segs = RP.all.filter((s) => s.ts + s.dur * 1000 >= from);
+  [...$("rpRanges").children].forEach((b) => b.classList.toggle("on", +b.dataset.min === min));
+  if (!RP.segs.length) { $("rpTime").textContent = "이 구간에 저장된 영상이 없어요"; return; }
+  rpPlay(0);
+}
+async function openReplay() {
+  if (!(view.conn && view.conn.open)) return toast("카메라에 연결된 뒤 볼 수 있어요");
+  if (view.info?.motion && !view.info.motion.replayMin) return toast("⚙️ 설정 → ⏪ 최근 영상 계속 보관을 먼저 켜주세요");
+  $("replayModal").hidden = false;
+  $("rpRanges").innerHTML = "";
+  $("rpTime").textContent = "목록 불러오는 중…";
+  try { RP.all = await remoteRecords.listReplay(true); }
+  catch (e) { $("rpTime").textContent = "불러오지 못했어요: " + e.message; return; }
+  if (!RP.all.length) { $("rpTime").textContent = "아직 저장된 영상이 없어요. 조금 뒤에 다시 열어주세요."; return; }
+  const span = Math.ceil((Date.now() - RP.all[0].ts) / 60000);
+  for (const min of [1, 5, 10, 30]) {
+    if (min > 1 && min - (min === 5 ? 4 : min === 10 ? 5 : 20) > span) continue;
+    const b = document.createElement("button");
+    b.textContent = `최근 ${min}분`;
+    b.dataset.min = min;
+    b.onclick = () => rpStart(min);
+    $("rpRanges").appendChild(b);
+  }
+  rpStart(Math.min(5, Math.max(1, span)) >= 5 ? 5 : 1);
+}
+$("rpPlay").onclick = () => {
+  const v = $("rpVideo");
+  if (!v.src) return;
+  if (v.paused) { v.play().catch(() => {}); $("rpPlay").textContent = "⏸"; }
+  else { v.pause(); $("rpPlay").textContent = "▶"; }
+};
+$("rpPrev").onclick = () => rpPlay(RP.i - 1);
+$("rpNext").onclick = () => rpPlay(RP.i + 1);
+$("rpRate").onchange = () => { $("rpVideo").playbackRate = +$("rpRate").value; };
+$("rpSave").onclick = () => {
+  if (!RP.blob) return;
+  saveBlob(RP.blob, `petcam_${stamp()}.${RP.blob.type.includes("mp4") ? "mp4" : "webm"}`);
+};
+$("rpClose").onclick = () => {
+  RP.token++;
+  const v = $("rpVideo"); v.pause(); v.removeAttribute("src"); v.load();
+  for (const p of RP.cache.values()) Promise.resolve(p).then((x) => x && URL.revokeObjectURL(x.url));
+  RP.cache.clear(); RP.blob = null;
+  $("replayModal").hidden = true;
+};
 $("vFlip").onclick = () => sendCtl({ t: "flip" });
 $("vQuality").onchange = (e) => {
   sendCtl({ t: "quality", v: e.target.value });
