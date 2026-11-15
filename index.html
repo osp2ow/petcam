@@ -67,6 +67,7 @@
 
   /* ---------- 뷰어(아이폰) ---------- */
   #stage{position:absolute;inset:0;touch-action:none;overflow:hidden}
+  #remoteWrap{position:absolute;inset:0;overflow:hidden;transform-origin:0 0;will-change:transform}
   #remote{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;
     transform-origin:0 0;will-change:transform;background:#000}
   .zoombadge{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:28px;font-weight:700;
@@ -193,7 +194,7 @@
 
 <!-- ================= 뷰어 모드 (아이폰) ================= -->
 <section id="view" class="screen" hidden>
-  <div id="stage"><video id="remote" playsinline autoplay muted></video></div>
+  <div id="stage"><div id="remoteWrap"><video id="remote" playsinline autoplay muted></video></div></div>
   <div id="overlayMsg"><div class="spin"></div><div id="overlayText">카메라에 연결 중…</div></div>
   <div class="zoombadge" id="zoomBadge">1.0×</div>
 
@@ -342,7 +343,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-15.10";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-15.11";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -917,51 +918,10 @@ const cam = {
   crop: null   // 고정 구도 {cx, cy, size} (원본 대비 비율)
 };
 
-/* ---------- 구도 고정: 아이패드에서 확대·이동한 구역만 잘라서 송출/감지/기록 ---------- */
-const czoom = { canvas: null, ctx: null, track: null, loop: 0 };
-function outVideoTrack() { return czoom.track || camVideoTrack(); }
-function outStream() {
-  return new MediaStream([outVideoTrack(), ...(cam.stream?.getAudioTracks() || [])].filter(Boolean));
-}
-async function replaceSenders(track) {
-  for (const v of cam.viewers.values()) {
-    if (v.videoSender && track) {
-      try { await v.videoSender.replaceTrack(track); applyBitrate(v.videoSender); } catch (_) {}
-    }
-  }
-}
-function stopCrop() {
-  czoom.loop++;
-  if (czoom.track) { try { czoom.track.stop(); } catch (_) {} }
-  czoom.canvas?.remove();
-  czoom.track = null; czoom.canvas = null; czoom.ctx = null;
-}
-function startCrop() {
-  const v = $("camVideo");
-  const c = document.createElement("canvas");
-  if (!c.captureStream) return false;
-  // Safari가 화면 밖 캔버스는 갱신을 멈출 수 있어서, 화면 안에 거의 안 보이게 둠
-  c.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-1";
-  document.body.appendChild(c);
-  const ctx = c.getContext("2d");
-  czoom.canvas = c; czoom.ctx = ctx;
-  const id = ++czoom.loop;
-  const draw = () => {
-    if (id !== czoom.loop) return;
-    const vw = v.videoWidth, vh = v.videoHeight;
-    if (vw && vh && cam.crop) {
-      const ow = Math.min(vw, 1920), oh = Math.round(ow * vh / vw);   // 보내는 해상도 최대 1080p
-      if (c.width !== ow || c.height !== oh) { c.width = ow; c.height = oh; }
-      ctx.drawImage(v, ...srcRect(v), 0, 0, ow, oh);
-    }
-    requestAnimationFrame(draw);
-  };
-  const vw = v.videoWidth || 1920, vh = v.videoHeight || 1080;
-  c.width = Math.min(vw, 1920); c.height = Math.round(c.width * vh / vw);
-  draw();
-  czoom.track = c.captureStream(30).getVideoTracks()[0];
-  return true;
-}
+/* ---------- 구도 고정 ----------
+   아이패드는 전체 영상을 그대로 보내고 '구도 정보'만 같이 보냄 → 아이폰이 그 구도로 확대해서 보여줌.
+   아이패드의 움직임 감지·타임랩스 사진은 고정 구도 안쪽만 사용. */
+function outVideoTrack() { return camVideoTrack(); }
 
 function fitBox(W, H, vw, vh) {
   const k = Math.min(W / vw, H / vh);
@@ -999,8 +959,6 @@ async function applyCrop(c, restoring) {
   if (!$("camVideo").videoWidth) return;
   cam.crop = c;
   localStorage.setItem("petcam_crop", JSON.stringify(c));
-  if (!czoom.track && !startCrop()) { cam.crop = null; return toast("이 기기에서는 구도 고정을 쓸 수 없어요"); }
-  await replaceSenders(czoom.track);
   // 아이패드 화면은 손으로 맞춘 확대 상태를 그대로 유지 (새로고침으로 복원할 땐 저장된 구도로 맞춤)
   if (restoring) { const t = cropToView(c); camZoom.set(t.s, t.tx, t.ty); }
   camZoom.enabled = false;
@@ -1012,8 +970,6 @@ async function clearCrop(keepView) {
   const c = cam.crop;
   cam.crop = null;
   localStorage.removeItem("petcam_crop");
-  stopCrop();
-  await replaceSenders(camVideoTrack());
   camZoom.enabled = true;
   if (!keepView || !c) camZoom.reset(false);   // 다시 잡기: 지금 확대 상태에서 이어서 조절
   resetMotion();
@@ -1078,6 +1034,7 @@ function camInfo() {
     res: s.width && s.height ? `${s.width}×${s.height}` : "",
     zoom,
     black: cam.black,
+    crop: cam.crop,
     ver: APP_VERSION,
     motion: { ...motion.cfg, lastAt: motion.lastAt }
   };
@@ -1139,11 +1096,9 @@ async function restartVideo() {
   const nt = ns.getVideoTracks()[0];
   cam.stream.addTrack(nt);
   $("camVideo").srcObject = cam.stream;
-  if (!czoom.track) {          // 구도 고정 중이면 잘라 보내는 트랙은 그대로
-    for (const v of cam.viewers.values()) {
-      if (v.videoSender) {
-        try { await v.videoSender.replaceTrack(nt); applyBitrate(v.videoSender); } catch (_) {}
-      }
+  for (const v of cam.viewers.values()) {
+    if (v.videoSender) {
+      try { await v.videoSender.replaceTrack(nt); applyBitrate(v.videoSender); } catch (_) {}
     }
   }
   cam.zoom = 1;
@@ -1193,7 +1148,7 @@ function onViewerConn(conn) {
     cam.viewers.set(conn.peer, v);
     try { conn.send(camInfo()); } catch (_) {}
 
-    const call = cam.peer.call(conn.peer, outStream(), { sdpTransform: preferH264 });
+    const call = cam.peer.call(conn.peer, cam.stream, { sdpTransform: preferH264 });
     v.call = call;
     call.on("close", () => dropViewer(conn.peer));
     call.on("error", () => dropViewer(conn.peer));
@@ -1315,7 +1270,7 @@ document.addEventListener("visibilitychange", async () => {
 });
 
 $("camBlack").onclick = () => setBlack(true);
-$("camFix").onclick = () => applyCrop(viewToCrop(camZoom)).then(() => toast("📌 이 구도로 고정했어요. 아이폰·감지·기록 모두 이 구도로 바뀌어요."));
+$("camFix").onclick = () => applyCrop(viewToCrop(camZoom)).then(() => toast("📌 이 구도로 고정했어요. 아이폰 화면·움직임 감지·타임랩스가 이 구도로 바뀌어요."));
 $("camReframe").onclick = () => clearCrop(true).then(() => toast("손가락으로 구도를 다시 잡고 📌 고정을 눌러주세요. (두 번 탭하면 전체 화면)", null, null, 5000));
 $("camMotion").onclick = () => openSheet("cam");
 $("camRecords").onclick = () => openRecords(localRecords);
@@ -1485,6 +1440,9 @@ function applyInfo(m) {
     else if (sheetMode === "view") updateBlackBtn();
   }
   if (m.quality) $("vQuality").value = m.quality;
+  const key = JSON.stringify(m.crop || null);
+  if (key !== view.cropKey) { view.cropKey = key; viewZoom.reset(false); }
+  applyViewCrop();
 }
 
 // 통계 표시 (해상도 · fps · 비트레이트)
@@ -1597,7 +1555,28 @@ function makeZoomable(stageEl, targetEl, badgeEl, onTap) {
   window.addEventListener("resize", () => render(false));
   return z;
 }
-const viewZoom = makeZoomable($("stage"), $("remote"), $("zoomBadge"), () => $("view").classList.toggle("hide-ui"));
+const viewZoom = makeZoomable($("stage"), $("remoteWrap"), $("zoomBadge"), () => $("view").classList.toggle("hide-ui"));
+
+// 아이패드에서 고정한 구도대로 아이폰 화면을 확대 (구도 밖은 잘라냄)
+function applyViewCrop() {
+  const v = $("remote"), c = view.info?.crop;
+  if (!c || !v.videoWidth) {
+    v.style.transform = ""; v.style.clipPath = ""; v.style.webkitClipPath = "";
+    return;
+  }
+  const st = $("stage").getBoundingClientRect();
+  const W = st.width, H = st.height;
+  const { cw, ch, ox, oy } = fitBox(W, H, v.videoWidth, v.videoHeight);
+  const left = ox + (c.cx - c.size / 2) * cw, top = oy + (c.cy - c.size / 2) * ch;
+  const w = c.size * cw, h = c.size * ch;
+  const k = Math.min(W / w, H / h);
+  const tx = W / 2 - k * (left + w / 2), ty = H / 2 - k * (top + h / 2);
+  const clip = `inset(${top}px ${W - left - w}px ${H - top - h}px ${left}px)`;
+  v.style.clipPath = clip; v.style.webkitClipPath = clip;
+  v.style.transform = `translate(${tx}px,${ty}px) scale(${k})`;
+}
+["loadedmetadata", "resize"].forEach((ev) => $("remote").addEventListener(ev, applyViewCrop));
+window.addEventListener("resize", applyViewCrop);
 const camZoom = makeZoomable($("camStage"), $("camVideo"), $("camZoomBadge"), () => $("cam").classList.toggle("hide-ui"));
 camZoom.onChange = () => updateCropUI();
 
@@ -1948,9 +1927,12 @@ $("vMute").onclick = () => {
 $("vShot").onclick = () => {
   const v = $("remote");
   if (!v.videoWidth) return toast("아직 영상이 없어요");
+  const cr = view.info?.crop;
+  const r = cr ? [(cr.cx - cr.size / 2) * v.videoWidth, (cr.cy - cr.size / 2) * v.videoHeight, cr.size * v.videoWidth, cr.size * v.videoHeight]
+               : [0, 0, v.videoWidth, v.videoHeight];
   const c = document.createElement("canvas");
-  c.width = v.videoWidth; c.height = v.videoHeight;
-  c.getContext("2d").drawImage(v, 0, 0);
+  c.width = Math.round(r[2]); c.height = Math.round(r[3]);
+  c.getContext("2d").drawImage(v, ...r, 0, 0, c.width, c.height);
   // 공유 시트가 바로 뜨도록 동기 변환
   const data = c.toDataURL("image/jpeg", 0.95);
   const bin = atob(data.split(",")[1]);
