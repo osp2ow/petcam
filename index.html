@@ -483,7 +483,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-16.24";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-16.25";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -2323,8 +2323,7 @@ $("rMore").onclick = () => renderMoreClips();
 
 function playClip(c) {
   R.playing = false;
-  const chrono = [...R.allClips].reverse();   // 플레이어에서는 시간 순서대로 이어서 재생
-  openClipPlayer(R.api, chrono, Math.max(0, chrono.indexOf(c)));
+  openClipPlayer(R.api, c);   // 누른 영상 하나만, 시작부터 끝까지
 }
 $("rClose").onclick = () => { resetPlayer(); tlSetFs(false); $("records").hidden = true; };
 let tlAutoFs = false, tlZoom = null;
@@ -2457,6 +2456,24 @@ $("rpKeep").onchange = (e) => {
   $("rpKeepNote").textContent = "· 바꾼 시간만큼 지금부터 쌓여요";
 };
 ["loadedmetadata", "resize"].forEach((ev) => $("rpVideo").addEventListener(ev, rpLayout));
+// 영상 하나만 볼 때는 실제 영상 길이로 막대 맞추기 (길이를 모르는 파일은 끝으로 한 번 이동해서 알아냄)
+function rpFitDuration() {
+  const v = $("rpVideo");
+  if (RP.segs.length !== 1) return;
+  if (v.duration === Infinity) {
+    const back = () => { v.removeEventListener("durationchange", back); try { v.currentTime = 0; } catch (_) {} };
+    v.addEventListener("durationchange", back);
+    try { v.currentTime = 1e9; } catch (_) {}
+    return;
+  }
+  if (!isFinite(v.duration) || v.duration <= 0) return;
+  const seg = RP.segs[0];
+  seg.dur = v.duration;
+  RP.total = v.duration;
+  $("rpRange").max = v.duration;
+  $("rpTo").textContent = timeStr(seg.ts + v.duration * 1000);
+}
+["loadedmetadata", "durationchange"].forEach((ev) => $("rpVideo").addEventListener(ev, rpFitDuration));
 async function rpGet(i) {
   const seg = RP.segs[i];
   if (!seg) return null;
@@ -2542,7 +2559,8 @@ function rpUseSegs(segs, startIdx) {
   for (const sgm of RP.segs) { RP.off.push(acc); acc += sgm.dur; }
   RP.total = acc;
   const r = $("rpRange");
-  r.max = Math.max(1, Math.floor(acc)); r.value = 0;
+  r.step = RP.segs.length === 1 ? 0.1 : 1;            // 영상 하나일 땐 더 세밀하게
+  r.max = RP.segs.length === 1 ? Math.max(0.5, acc) : Math.max(1, Math.floor(acc)); r.value = 0;
   $("rpFrom").textContent = timeStr(RP.segs[0].ts);
   const last = RP.segs[RP.segs.length - 1];
   $("rpTo").textContent = timeStr(last.ts + last.dur * 1000);
@@ -2555,15 +2573,17 @@ function rpResetCache() {
   RP.cache.clear(); RP.blob = null;
 }
 // 기록의 움직임 클립을 재생 화면(전체화면·확대·막대 이동)으로 보기
-function openClipPlayer(api, clips, idx) {
+// 움직임 영상 한 개를 시작부터 끝까지 (막대로 그 영상 안에서 이동)
+function openClipPlayer(api, clip) {
   rpResetCache();
   RP.fetch = (id) => api.getClip(id);
   $("replayModal").classList.add("clipmode");
-  $("rpTitle").textContent = "움직임 영상";
+  $("rpTitle").textContent = `움직임 영상 · ${dayStr(clip.ts)} ${timeStr(clip.ts)}`;
   $("replayModal").hidden = false;
   rpSetFs(landscapeMQ.matches, true);
-  RP.all = clips;
-  rpUseSegs(clips, idx);
+  const one = { ...clip };
+  RP.all = [one];
+  rpUseSegs([one], 0);
 }
 async function openReplay() {
   if (!(view.conn && view.conn.open)) return toast("카메라에 연결된 뒤 볼 수 있어요");
@@ -2596,7 +2616,10 @@ async function openReplay() {
 $("rpPlay").onclick = () => {
   const v = $("rpVideo");
   if (!v.src) return;
-  if (v.paused) { RP.paused = false; v.play().catch(() => {}); $("rpPlay").textContent = "일시정지"; }
+  if (v.paused) {
+    if (v.ended && RP.i >= RP.segs.length - 1) { try { v.currentTime = 0; } catch (_) {} }   // 끝까지 본 뒤 재생 → 처음부터
+    RP.paused = false; v.play().catch(() => {}); $("rpPlay").textContent = "일시정지";
+  }
   else { RP.paused = true; v.pause(); $("rpPlay").textContent = "재생"; }
 };
 $("rpBack").onclick = () => rpSeek(+$("rpRange").value - 10);
