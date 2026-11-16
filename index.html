@@ -483,7 +483,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-16.25";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-16.26";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -699,7 +699,11 @@ function applyMotionCfg(cfg) {
   let camChanged = false, focusChanged = false;
   if (typeof cfg.deviceId === "string" && cfg.deviceId !== motion.cfg.deviceId) { motion.cfg.deviceId = cfg.deviceId; camChanged = true; }
   if (typeof cfg.focusLock === "boolean" && cfg.focusLock !== motion.cfg.focusLock) { motion.cfg.focusLock = cfg.focusLock; focusChanged = true; }
-  if (camChanged && cam.stream) { saveMotionCfg(); if (cam.crop) clearCrop(false); restartVideo(); }
+  // 렌즈를 바꿔도 고정한 구도는 유지 (화각이 달라졌으면 '구도 다시 잡기'로 조정)
+  if (camChanged && cam.stream) {
+    saveMotionCfg(); restartVideo();
+    if (cam.crop) sendAll({ t: "toast", text: "렌즈를 바꿨어요. 고정한 구도는 그대로예요. 화면이 달라졌으면 아이패드에서 '구도 다시 잡기'로 맞춰주세요." });
+  }
   else if (focusChanged && cam.stream) { saveMotionCfg(); applyFocusLock(); }
   saveMotionCfg();
   resetMotion();
