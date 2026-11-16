@@ -107,6 +107,12 @@
   .sheet .sec{margin-top:6px;padding-top:12px;border-top:1px solid var(--line);font-weight:700;font-size:15px}
   .sheet input[type=time]{background:#0f0f12;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:15px;color:var(--text)}
   .sheet .times{display:flex;align-items:center;gap:6px}
+  .qrule{background:#0f0f12;border:1px solid var(--line);border-radius:14px;padding:10px;display:flex;flex-direction:column;gap:8px;margin-bottom:8px}
+  .qdays{display:flex;gap:4px}
+  .qdays button{flex:1;padding:7px 0;font-size:13px;border-radius:9px}
+  .qrow{display:flex;align-items:center;gap:6px}
+  .qrow .spacer{flex:1}
+  .qrow button{padding:7px 10px;font-size:13px}
 
   /* ---------- 기록 보기 ---------- */
   #records{position:fixed;inset:0;z-index:45;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch;
@@ -340,10 +346,9 @@
     <div class="hint">움직임이 잡히면 언제든 그때부터 녹화해서, 움직임이 멈춘 뒤 정한 시간만큼 더 찍어요. 계속 움직이면 이어서 찍어요(최대 5분). 기록 탭에서 날짜별로 볼 수 있어요. 알림을 꺼도 영상은 저장돼요.</div>
 
     <div class="sec">🌙 알림 안 받는 시간</div>
-    <label class="row"><span>켜기</span><input type="checkbox" id="mQuiet"></label>
-    <div class="row"><span>시간</span>
-      <span class="times"><input type="time" id="mQFrom"> ~ <input type="time" id="mQTo"></span>
-    </div>
+    <div id="qList"></div>
+    <button id="qAdd">+ 시간 추가</button>
+    <div class="hint">요일과 시간을 골라 여러 개 만들 수 있어요. 자정을 넘기는 시간(예: 23:00~07:00)은 시작하는 요일 기준이에요. 이 시간에도 영상 저장·기록은 계속돼요.</div>
 
     <div class="sec">🖤 아이패드 화면 (잠금 대신)</div>
     <label class="row"><span>손 안 대면 자동으로 화면 끄기</span>
@@ -483,7 +488,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-16.26";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-16.27";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -680,6 +685,19 @@ if (!localStorage.getItem("petcam_mig_replay60")) {
 }
 // 알림, 움직임 클립, 자동 기록 중 하나라도 켜져 있으면 감지를 돌림
 function motionActive() { return !!(motion.cfg.enabled || motion.cfg.clips || (typeof rec !== "undefined" && rec.session)); }
+// 예전 방식(하나짜리 알림 안 받는 시간)을 새 방식(여러 개, 요일별)으로 옮기기
+if (!Array.isArray(motion.cfg.quietRules)) {
+  motion.cfg.quietRules = motion.cfg.quiet
+    ? [{ days: [0, 1, 2, 3, 4, 5, 6], from: motion.cfg.qFrom || "23:00", to: motion.cfg.qTo || "07:00" }]
+    : [];
+}
+// 지금이 알림 안 받는 시간인지 (자정 넘는 구간은 시작한 요일 기준)
+function isQuiet(now) {
+  return (motion.cfg.quietRules || []).some((r) => {
+    const ws = windowStart(now, r.from, r.to);
+    return ws !== null && r.days.includes(new Date(ws).getDay());
+  });
+}
 function saveMotionCfg() { localStorage.setItem("petcam_motion", JSON.stringify(motion.cfg)); }
 function resetMotion(ms = 2500) { motion.bg = null; motion.hits = 0; motion.sharpRef = null; motion.ignoreUntil = Date.now() + ms; }
 
@@ -690,6 +708,13 @@ function applyMotionCfg(cfg) {
   if (typeof cfg.topic === "string" && cfg.topic.trim()) motion.cfg.topic = cfg.topic.trim().replace(/[^A-Za-z0-9_-]/g, "");
   const isTime = (x) => typeof x === "string" && /^\d{2}:\d{2}$/.test(x);
   for (const k of ["quiet", "rec", "clips"]) if (typeof cfg[k] === "boolean") motion.cfg[k] = cfg[k];
+  if (Array.isArray(cfg.quietRules)) {
+    motion.cfg.quietRules = cfg.quietRules.slice(0, 12).map((r) => ({
+      days: [...new Set((r.days || []).map(Number).filter((d) => d >= 0 && d <= 6))].sort(),
+      from: isTime(r.from) ? r.from : "23:00",
+      to: isTime(r.to) ? r.to : "07:00"
+    }));
+  }
   for (const k of ["qFrom", "qTo", "rFrom", "rTo"]) if (isTime(cfg[k])) motion.cfg[k] = cfg[k];
   if ([5, 10, 30, 60].includes(+cfg.tlSec)) motion.cfg.tlSec = +cfg.tlSec;
   if ([15, 30, 60].includes(+cfg.clipSec)) motion.cfg.clipSec = +cfg.clipSec;
@@ -809,7 +834,9 @@ function motionTick() {
     }
   }
   let active = 0;
-  for (let k = 0; k < cols * rows; k++) if (cellTotal[k] && cellChanged[k] / cellTotal[k] > 0.2) active++;
+  const cellsNow = [];
+  for (let k = 0; k < cols * rows; k++) if (cellTotal[k] && cellChanged[k] / cellTotal[k] > 0.2) { active++; cellsNow.push(k); }
+  motion.cells = cellsNow;
   const score = active / (cols * rows);
 
   // 3) 화면 40% 이상이 한꺼번에 변하면 → 초점·노출·렌즈 전환 같은 카메라 자체 조정으로 보고 무시
@@ -837,7 +864,8 @@ function srcRect(v) {
   if (!c) return [0, 0, vw, vh];
   return [(c.cx - c.size / 2) * vw, (c.cy - c.size / 2) * vh, c.size * vw, c.size * vh];
 }
-function snapshotBlob(maxW = 1280, quality = 0.82) {
+// cells: 움직임으로 판단한 칸 번호들 → 빨간 네모로 표시 (무엇 때문에 감지됐는지 보이게)
+function snapshotBlob(maxW = 1280, quality = 0.82, cells) {
   const v = $("camVideo");
   if (!v.videoWidth) return Promise.resolve(null);
   const r = srcRect(v);
@@ -845,7 +873,14 @@ function snapshotBlob(maxW = 1280, quality = 0.82) {
   const c = document.createElement("canvas");
   c.width = Math.max(1, Math.round(r[2] * k));
   c.height = Math.max(1, Math.round(r[3] * k));
-  c.getContext("2d").drawImage(v, ...r, 0, 0, c.width, c.height);
+  const ctx = c.getContext("2d");
+  ctx.drawImage(v, ...r, 0, 0, c.width, c.height);
+  if (cells && cells.length) {
+    const cw = c.width / 16, ch = c.height / 9;
+    ctx.strokeStyle = "rgba(255,40,40,0.95)";
+    ctx.lineWidth = Math.max(2, c.width / 320);
+    for (const n of cells) ctx.strokeRect((n % 16) * cw + 1, Math.floor(n / 16) * ch + 1, cw - 2, ch - 2);
+  }
   return new Promise((r) => c.toBlob(r, "image/jpeg", quality));
 }
 
@@ -882,6 +917,7 @@ async function sendTestAlert() {
 async function triggerMotion(score) {
   const now = Date.now();
   motion.lastAt = now;
+  motion.trigCells = (motion.cells || []).slice();
   updateMotionPill();
   if (motion.cfg.clips) startClip();
   if (!motion.cfg.enabled) return;
@@ -891,11 +927,11 @@ async function triggerMotion(score) {
     sendAll({ t: "motion", at: now, score });
     broadcastInfo();
   }
-  if (motion.cfg.quiet && inWindow(now, motion.cfg.qFrom, motion.cfg.qTo)) return;   // 알림 안 받는 시간
+  if (isQuiet(now)) return;   // 알림 안 받는 시간
   if (now - motion.lastAlert < motion.cfg.cooldown * 1000) return;
   motion.lastAlert = now;
-  const blob = await snapshotBlob();
-  sendNtfy("🐾 움직임 감지", `${timeStr(now)} · 화면 변화 ${(score * 100).toFixed(1)}%`, blob);
+  const blob = await snapshotBlob(1280, 0.82, motion.trigCells);
+  sendNtfy("🐾 움직임 감지", `${timeStr(now)} · 빨간 네모가 움직임으로 잡힌 곳이에요`, blob);
 }
 
 /* =====================================================================
@@ -1090,7 +1126,7 @@ function startClip() {
     } catch (e) { console.warn("clip save", e); camSetStatus("저장 공간 부족?", "bad"); }
   };
   r.start(1000);
-  snapshotBlob(480, 0.7).then((b) => (clip.thumb = b));
+  snapshotBlob(480, 0.7, motion.trigCells).then((b) => (clip.thumb = b));
 }
 function finishClip() {
   const c = rec.clip;
@@ -1974,9 +2010,7 @@ function fillSheet(cfg, fromRemote) {
   set("mSens", "value", cfg.sens);
   set("mCooldown", "value", String(cfg.cooldown));
   set("mTopic", "value", cfg.topic || "");
-  set("mQuiet", "checked", !!cfg.quiet);
-  set("mQFrom", "value", cfg.qFrom || "23:00");
-  set("mQTo", "value", cfg.qTo || "07:00");
+  renderQuiet(cfg.quietRules || []);
   set("mRec", "checked", !!cfg.rec);
   set("mRFrom", "value", cfg.rFrom || "00:00");
   set("mRTo", "value", cfg.rTo || "07:00");
@@ -2014,7 +2048,6 @@ function openSheet(mode) {
 function sheetChanged() {
   const cfg = {
     enabled: $("mEnabled").checked, sens: $("mSens").value, cooldown: +$("mCooldown").value,
-    quiet: $("mQuiet").checked, qFrom: $("mQFrom").value, qTo: $("mQTo").value,
     rec: $("mRec").checked, rFrom: $("mRFrom").value, rTo: $("mRTo").value,
     tlSec: +$("mTl").value, clips: $("mClips").checked, clipSec: +$("mClipSec").value, keepDays: +$("mKeep").value,
     autoBlack: +$("mAutoBlack").value, replayMin: +$("mReplay").value,
@@ -2027,7 +2060,7 @@ function sheetChanged() {
     sendCtl({ t: "motionCfg", cfg });
   }
 }
-["mEnabled", "mSens", "mCooldown", "mTopic", "mQuiet", "mQFrom", "mQTo", "mRec", "mRFrom", "mRTo", "mTl", "mClips", "mClipSec", "mKeep", "mAutoBlack", "mReplay", "mDevice", "mFocus"].forEach((id) => $(id).addEventListener("change", sheetChanged));
+["mEnabled", "mSens", "mCooldown", "mTopic", "mRec", "mRFrom", "mRTo", "mTl", "mClips", "mClipSec", "mKeep", "mAutoBlack", "mReplay", "mDevice", "mFocus"].forEach((id) => $(id).addEventListener("change", sheetChanged));
 $("mTest").onclick = async () => {
   if (sheetMode === "cam") {
     toast("보내는 중…");
@@ -2046,6 +2079,45 @@ $("mCopy").onclick = () => {
   );
 };
 $("mClose").onclick = () => ($("sheetBack").hidden = true);
+
+/* ---------- 알림 안 받는 시간 목록 편집 ---------- */
+let qRules = [], qShown = "";
+const QDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+function renderQuiet(rules, force) {
+  const json = JSON.stringify(rules);
+  if (!force && (json === qShown || $("qList").contains(document.activeElement))) return;
+  qShown = json;
+  qRules = JSON.parse(json);
+  const box = $("qList");
+  box.innerHTML = "";
+  if (!qRules.length) box.innerHTML = '<div class="hint">아직 없어요. 아래 \'+ 시간 추가\'를 눌러 만드세요.</div>';
+  qRules.forEach((r, i) => {
+    const el = document.createElement("div");
+    el.className = "qrule";
+    el.innerHTML = `<div class="qdays">${QDAYS.map((d, k) => `<button data-d="${k}" class="${r.days.includes(k) ? "on" : ""}">${d}</button>`).join("")}</div>
+      <div class="qrow"><input type="time" class="qf" value="${r.from}"> ~ <input type="time" class="qt" value="${r.to}"><span class="spacer"></span><button class="qdel">삭제</button></div>`;
+    el.querySelectorAll(".qdays button").forEach((b) => b.onclick = () => {
+      const d = +b.dataset.d;
+      r.days = r.days.includes(d) ? r.days.filter((x) => x !== d) : [...r.days, d].sort();
+      b.classList.toggle("on", r.days.includes(d));
+      quietChanged();
+    });
+    el.querySelector(".qf").onchange = (e) => { r.from = e.target.value || r.from; quietChanged(); };
+    el.querySelector(".qt").onchange = (e) => { r.to = e.target.value || r.to; quietChanged(); };
+    el.querySelector(".qdel").onclick = () => { qRules.splice(i, 1); quietChanged(); renderQuiet(qRules, true); };
+    box.appendChild(el);
+  });
+}
+function quietChanged() {
+  qShown = JSON.stringify(qRules);
+  if (sheetMode === "cam") applyMotionCfg({ quietRules: qRules });
+  else { sheetHoldUntil = Date.now() + 2500; sendCtl({ t: "motionCfg", cfg: { quietRules: qRules } }); }
+}
+$("qAdd").onclick = () => {
+  qRules.push({ days: [0, 1, 2, 3, 4, 5, 6], from: "23:00", to: "07:00" });
+  quietChanged();
+  renderQuiet(qRules, true);
+};
 function isBlackNow() { return sheetMode === "cam" ? cam.black : !!view.info?.black; }
 function updateBlackBtn() {
   $("mBlackNow").textContent = isBlackNow() ? "아이패드 화면 켜기" : "지금 아이패드 화면 끄기";
