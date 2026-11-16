@@ -488,7 +488,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-16.27";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-16.28";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -931,7 +931,7 @@ async function triggerMotion(score) {
   if (now - motion.lastAlert < motion.cfg.cooldown * 1000) return;
   motion.lastAlert = now;
   const blob = await snapshotBlob(1280, 0.82, motion.trigCells);
-  sendNtfy("🐾 움직임 감지", `${timeStr(now)} · 빨간 네모가 움직임으로 잡힌 곳이에요`, blob);
+  sendNtfy("🐾 움직임 감지", timeStr(now), blob);
 }
 
 /* =====================================================================
