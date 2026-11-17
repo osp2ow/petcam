@@ -488,7 +488,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-16.28";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-17.29";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -1315,6 +1315,7 @@ function updateCropUI() {
 async function applyCrop(c, restoring) {
   if (!$("camVideo").videoWidth) return;
   cam.crop = c;
+  cam.liveCrop = null;
   localStorage.setItem("petcam_crop", JSON.stringify(c));
   // 아이패드 화면은 손으로 맞춘 확대 상태를 그대로 유지 (새로고침으로 복원할 땐 저장된 구도로 맞춤)
   if (restoring) { const t = cropToView(c); camZoom.set(t.s, t.tx, t.ty); }
@@ -1329,6 +1330,7 @@ async function clearCrop(keepView) {
   localStorage.removeItem("petcam_crop");
   camZoom.enabled = true;
   if (!keepView || !c) camZoom.reset(false);   // 다시 잡기: 지금 확대 상태에서 이어서 조절
+  cam.liveCrop = keepView && c ? c : null;      // 아이폰은 방금 구도에서 이어서 따라옴
   resetMotion();
   updateCropUI();
   broadcastInfo();
@@ -1427,7 +1429,8 @@ function camInfo() {
     res: s.width && s.height ? `${s.width}×${s.height}` : "",
     zoom,
     black: cam.black,
-    crop: cam.crop,
+    crop: cam.crop || cam.liveCrop || null,      // 고정 구도, 없으면 지금 조정 중인 구도
+    cropLive: !cam.crop && !!cam.liveCrop,
     devices: cam.devices || [],
     focusModes: focusModes(),
     ver: APP_VERSION,
@@ -1990,6 +1993,7 @@ function layoutCrop(box, vid, crop, W, H) {
 function applyViewCrop() {
   const c = view.info?.crop || null;
   $("vCropPill").hidden = !c;
+  $("vCropPill").textContent = view.info?.cropLive ? "구도 조정 중" : "구도 고정";
   const st = $("stage").getBoundingClientRect();
   layoutCrop($("cropBox"), $("remote"), c, st.width, st.height);
 }
@@ -1998,7 +2002,22 @@ window.addEventListener("resize", applyViewCrop);
 ["playing", "loadeddata"].forEach((ev) => $("remote").addEventListener(ev, applyViewCrop));
 setInterval(() => { if (!$("view").hidden) applyViewCrop(); }, 2000);   // 혹시 놓쳐도 2초마다 다시 적용
 const camZoom = makeZoomable($("camStage"), $("camVideo"), $("camZoomBadge"), () => $("cam").classList.toggle("hide-ui"));
-camZoom.onChange = () => updateCropUI();
+camZoom.onChange = () => { updateCropUI(); scheduleLiveCrop(); };
+// 구도를 조정하는 동안(고정 전)에도 아이패드 화면 그대로 아이폰에 바로 보여주기
+let liveCropTimer = null;
+function scheduleLiveCrop() {
+  if (cam.crop || $("cam").hidden) return;
+  if (liveCropTimer) return;
+  liveCropTimer = setTimeout(() => {
+    liveCropTimer = null;
+    if (cam.crop) return;
+    const zoomed = camZoom.s > 1.02 && $("camVideo").videoWidth;
+    const next = zoomed ? viewToCrop(camZoom) : null;
+    if (JSON.stringify(next) === JSON.stringify(cam.liveCrop || null)) return;
+    cam.liveCrop = next;
+    broadcastInfo();
+  }, 200);
+}
 
 /* ---------- 움직임 감지 설정 시트 (카메라/뷰어 공용) ---------- */
 let sheetMode = null;
