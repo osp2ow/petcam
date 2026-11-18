@@ -169,7 +169,7 @@
   .rpkeep{display:flex;align-items:center;gap:8px;margin:2px 0 10px}
   .rpkeep select{padding:6px 10px;border-radius:10px;font-size:13px}
   .rpview{position:relative}
-  #rpStage{touch-action:none}
+  #rpStage{touch-action:pan-y}
   #rpWrap{position:absolute;inset:0;transform-origin:0 0;will-change:transform}
   #rpTime{z-index:3;pointer-events:none}
   .fsbtn{position:absolute;right:8px;top:8px;z-index:4;padding:6px 10px;font-size:13px;border-radius:10px}
@@ -185,7 +185,7 @@
   #replayModal.fs .rpctl .tlctl{margin-bottom:0}
   #replayModal.fs.hidectl .rpctl,#replayModal.fs.hidectl .fsbtn,#replayModal.fs.hidectl #rpTime{opacity:0;pointer-events:none}
   /* 기록 화면 확대·전체화면 */
-  #tlStage{touch-action:none}
+  #tlStage{touch-action:pan-y}
   #tlWrap{position:absolute;inset:0;transform-origin:0 0;will-change:transform}
   #tlWrap img{width:100%;height:100%;object-fit:contain}
   #tlTime{z-index:3;pointer-events:none}
@@ -205,6 +205,29 @@
     background:linear-gradient(transparent,rgba(0,0,0,.8));transition:opacity .25s}
   #records.fs.hidectl #tlCtl,#records.fs.hidectl .fsbtn,#records.fs.hidectl #tlTime{opacity:0;pointer-events:none}
   #replayModal.clipmode #rpRanges,#replayModal.clipmode .rpkeep{display:none}
+  /* ===== 가로 모드 / 아이폰 양옆 노치 영역 ===== */
+  .topbar,.bottombar{padding-left:max(12px,env(safe-area-inset-left));padding-right:max(12px,env(safe-area-inset-right))}
+  #records,#replayModal{padding-left:max(14px,env(safe-area-inset-left))!important;padding-right:max(14px,env(safe-area-inset-right))!important}
+  #records.fs,#replayModal.fs{padding:0!important}
+  .tlbox{max-height:72vh;max-height:72dvh}
+  .rpview{max-width:calc(72vh * 16 / 9);max-width:calc(72dvh * 16 / 9);margin:0 auto}
+  #records.fs #tlStage,#replayModal.fs #rpStage{max-height:none}
+  @media (orientation: landscape) and (max-height: 540px) {
+    .topbar{padding-top:calc(env(safe-area-inset-top, 0px) + 8px)}
+    .bottombar{padding-bottom:max(8px,env(safe-area-inset-bottom))}
+    .vbar .tile{min-height:44px;padding:5px 2px;gap:1px}
+    .vbar .tile b{font-size:14px}
+    .vbar .tile small{font-size:10px}
+    .mini{padding:6px 9px}
+    #records,#replayModal{padding-top:calc(env(safe-area-inset-top, 0px) + 10px)}
+    .tlbox{max-height:64vh;max-height:64dvh}
+    .rpview{max-width:calc(64vh * 16 / 9);max-width:calc(64dvh * 16 / 9)}
+    .sheet{max-height:94vh;max-height:94dvh;max-width:640px;border-radius:18px 18px 0 0}
+    #home{gap:10px;padding-top:16px;padding-bottom:16px;max-width:560px}
+    #home h1{font-size:26px}
+    .big{padding:12px 16px}
+    #motionBanner{top:calc(70px + env(safe-area-inset-top, 0px))}
+  }
   #replayModal{position:fixed;inset:0;z-index:46;background:var(--bg);overflow-y:auto;
     padding:calc(env(safe-area-inset-top, 0px) + 22px) 14px max(20px,env(safe-area-inset-bottom))}
   #clipModal{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px}
@@ -488,7 +511,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-17.29";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-18.30";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -1879,7 +1902,7 @@ setInterval(async () => {
 }, 1000);
 
 /* ---------- 손가락 확대 / 이동 (공용: 아이폰 보기 화면 + 아이패드 구도 잡기) ---------- */
-function makeZoomable(stageEl, targetEl, badgeEl, onTap) {
+function makeZoomable(stageEl, targetEl, badgeEl, onTap, isFs) {
   const z = { s: 1, tx: 0, ty: 0, enabled: true, onChange: null };
   const pointers = new Map();
   let gesture = null, lastTap = 0, tapTimer = null, moved = false;
@@ -1892,6 +1915,8 @@ function makeZoomable(stageEl, targetEl, badgeEl, onTap) {
   function render(showBadge = true) {
     clampPan();
     targetEl.style.transform = `translate(${z.tx}px,${z.ty}px) scale(${z.s})`;
+    // 기록·재생 화면: 확대 안 했고 전체화면도 아니면 한 손가락으로 위아래 스크롤되게
+    if (isFs) stageEl.style.touchAction = z.s > 1.01 || isFs() ? "none" : "pan-y";
     if (showBadge && badgeEl) {
       badgeEl.textContent = z.s.toFixed(1) + "×";
       badgeEl.style.opacity = 1;
@@ -2267,7 +2292,7 @@ async function openRecords(api) {
       b.onclick = () => loadSession(x.id, b);
       $("rSessions").appendChild(b);
     }
-    tlSetFs(landscapeMQ.matches, true);
+    tlSetFs(false);
   }
 
   // ② 움직임 영상: 전부 최신순
@@ -2513,10 +2538,10 @@ function rpLayout() {
 // 재생 화면 손가락 확대 (두 손가락 확대·이동, 두 번 탭 2.5배), 전체화면에서 한 번 탭하면 버튼 숨김
 tlZoom = makeZoomable($("tlStage"), $("tlWrap"), $("tlZoomBadge"), () => {
   if ($("records").classList.contains("fs")) $("records").classList.toggle("hidectl");
-});
+}, () => $("records").classList.contains("fs"));
 const rpZoom = makeZoomable($("rpStage"), $("rpWrap"), $("rpZoomBadge"), () => {
   if ($("replayModal").classList.contains("fs")) $("replayModal").classList.toggle("hidectl");
-});
+}, () => $("replayModal").classList.contains("fs"));
 let rpAutoFs = false;
 function rpSetFs(on, auto) {
   const m = $("replayModal");
@@ -2533,10 +2558,7 @@ $("rpFs").onclick = () => rpSetFs(!$("replayModal").classList.contains("fs"));
 const landscapeMQ = window.matchMedia("(orientation: landscape)");
 function onOrient() {
   if ($("replayModal").hidden) {
-    if (!$("records").hidden && !$("rBody").hidden) {
-      if (landscapeMQ.matches) { if (!$("records").classList.contains("fs")) tlSetFs(true, true); }
-      else if (tlAutoFs) tlSetFs(false);
-    }
+    if (!landscapeMQ.matches && tlAutoFs) tlSetFs(false);
     return;
   }
   if (landscapeMQ.matches) { if (!$("replayModal").classList.contains("fs")) rpSetFs(true, true); }
@@ -2545,6 +2567,13 @@ function onOrient() {
 }
 (landscapeMQ.addEventListener ? landscapeMQ.addEventListener("change", onOrient) : landscapeMQ.addListener(onOrient));
 window.addEventListener("resize", () => { if (!$("replayModal").hidden) rpLayout(); });
+function relayoutAll() {
+  try { applyViewCrop(); } catch (_) {}
+  try { if (!$("replayModal").hidden) rpLayout(); } catch (_) {}
+  for (const z of [viewZoom, camZoom, rpZoom, tlZoom]) { try { z && z.set(z.s, z.tx, z.ty); } catch (_) {} }
+}
+window.addEventListener("orientationchange", () => [150, 450, 900].forEach((t) => setTimeout(relayoutAll, t)));
+window.addEventListener("pageshow", () => setTimeout(relayoutAll, 300));
 // 보관 시간 바로 바꾸기
 $("rpKeep").onchange = (e) => {
   sendCtl({ t: "motionCfg", cfg: { replayMin: +e.target.value } });
@@ -2675,7 +2704,7 @@ function openClipPlayer(api, clip) {
   $("replayModal").classList.add("clipmode");
   $("rpTitle").textContent = `움직임 영상 · ${dayStr(clip.ts)} ${timeStr(clip.ts)}`;
   $("replayModal").hidden = false;
-  rpSetFs(landscapeMQ.matches, true);
+  rpSetFs(false);
   const one = { ...clip };
   RP.all = [one];
   rpUseSegs([one], 0);
@@ -2688,7 +2717,7 @@ async function openReplay() {
   $("replayModal").classList.remove("clipmode");
   $("rpTitle").textContent = "최근 영상 다시보기";
   $("replayModal").hidden = false;
-  rpSetFs(landscapeMQ.matches, true);
+  rpSetFs(false);
   $("rpKeep").value = String(view.info?.motion?.replayMin || 60);
   $("rpKeepNote").textContent = "";
   $("rpRanges").innerHTML = "";
