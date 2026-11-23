@@ -73,6 +73,9 @@
   .cropbox video{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;background:#000}
   #remote{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;
     transform-origin:0 0;will-change:transform;background:#000}
+  .focusring{position:fixed;width:76px;height:76px;margin:-38px 0 0 -38px;border:2px solid #ffd04a;border-radius:10px;
+    z-index:70;pointer-events:none;animation:fr 1.6s ease-out forwards}
+  @keyframes fr{0%{transform:scale(1.5);opacity:0}15%{transform:scale(1);opacity:1}80%{opacity:1}100%{opacity:0}}
   .zoombadge{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:28px;font-weight:700;
     background:rgba(0,0,0,.5);padding:8px 16px;border-radius:14px;z-index:6;pointer-events:none;opacity:0;transition:opacity .3s}
   .zoomwrap{position:absolute;right:10px;top:50%;transform:translateY(-50%);z-index:5;display:flex;flex-direction:column;
@@ -388,6 +391,7 @@
     <div class="sec">📷 카메라</div>
     <label class="row"><span>렌즈 선택</span><select id="mDevice"></select></label>
     <label class="row"><span>초점 고정</span><input type="checkbox" id="mFocus"></label>
+    <button id="mFocusAuto">자동 초점으로 되돌리기</button>
     <div class="hint" id="mFocusNote">초점이 계속 바뀌거나 화면이 튀면, 렌즈를 '듀얼·트리플'이 아닌 그냥 <b>'후면 카메라'</b>로 고르고 초점 고정을 켜보세요.</div>
 
     <div class="sec">⏪ 최근 영상 다시보기</div>
@@ -511,7 +515,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-18.30";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-23.31";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -752,7 +756,10 @@ function applyMotionCfg(cfg) {
     saveMotionCfg(); restartVideo();
     if (cam.crop) sendAll({ t: "toast", text: "렌즈를 바꿨어요. 고정한 구도는 그대로예요. 화면이 달라졌으면 아이패드에서 '구도 다시 잡기'로 맞춰주세요." });
   }
-  else if (focusChanged && cam.stream) { saveMotionCfg(); applyFocusLock(); }
+  else if (focusChanged && cam.stream) {
+    if (!motion.cfg.focusLock) delete motion.cfg.focusDist;
+    saveMotionCfg(); applyFocusLock();
+  }
   saveMotionCfg();
   resetMotion();
   broadcastInfo();
@@ -1407,12 +1414,105 @@ async function loadDevices() {
 function focusModes() {
   try { return camVideoTrack()?.getCapabilities?.().focusMode || []; } catch (_) { return []; }
 }
+function focusDistCaps() {
+  try {
+    const c = camVideoTrack()?.getCapabilities?.().focusDistance;
+    return c && c.max > c.min ? c : null;
+  } catch (_) { return null; }
+}
+async function setFocusDist(d) {
+  const t = camVideoTrack();
+  const modes = focusModes();
+  const c = modes.includes("manual") ? { focusMode: "manual", focusDistance: d } : { focusDistance: d };
+  await t.applyConstraints({ advanced: [c] });
+}
+// (u, v) = 원본 화면 기준 위치(0~1). 그 주변이 얼마나 선명한지 점수
+const sharpCanvas = document.createElement("canvas");
+function regionSharpness(u, v) {
+  const vid = $("camVideo"), vw = vid.videoWidth, vh = vid.videoHeight;
+  if (!vw) return 0;
+  const R = 96, size = Math.min(vw, vh) * 0.18;
+  const sx = Math.max(0, Math.min(vw - size, u * vw - size / 2)), sy = Math.max(0, Math.min(vh - size, v * vh - size / 2));
+  sharpCanvas.width = R; sharpCanvas.height = R;
+  const ctx = sharpCanvas.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(vid, sx, sy, size, size, 0, 0, R, R);
+  const d = ctx.getImageData(0, 0, R, R).data;
+  const g = new Float32Array(R * R);
+  for (let i = 0, j = 0; i < R * R; i++, j += 4) g[i] = d[j] * 0.3 + d[j + 1] * 0.59 + d[j + 2] * 0.11;
+  let sum = 0;
+  for (let y = 1; y < R - 1; y++) for (let x = 1; x < R - 1; x++) {
+    const i = y * R + x;
+    const gx = g[i + 1] - g[i - 1], gy = g[i + R] - g[i - R];
+    sum += gx * gx + gy * gy;
+  }
+  return sum / (R * R);
+}
+let focusBusy = false;
+async function focusAt(u, v) {
+  if (focusBusy) return { ok: false, msg: "초점을 맞추는 중이에요" };
+  const caps = focusDistCaps();
+  const t = camVideoTrack();
+  if (!t) return { ok: false, msg: "카메라가 꺼져 있어요" };
+  if (!caps) {
+    // 초점 거리 조절은 안 되지만 '한 번 자동 초점'이 되면 그거라도
+    const modes = focusModes();
+    if (modes.includes("single-shot")) {
+      try { await t.applyConstraints({ advanced: [{ focusMode: "single-shot" }] }); return { ok: true, msg: "초점을 다시 잡았어요 (위치 지정은 이 아이패드에서 지원 안 돼요)" }; } catch (_) {}
+    }
+    return { ok: false, msg: "이 아이패드 Safari는 초점 조절을 지원하지 않아요. 설정에서 렌즈를 '후면 카메라'로 바꿔보세요." };
+  }
+  focusBusy = true;
+  motion.ignoreUntil = Date.now() + 15000;   // 초점 찾는 동안은 움직임 감지 쉬기
+  try {
+    const measure = async (d) => {
+      await setFocusDist(d);
+      await sleep(260);
+      return (regionSharpness(u, v) + (await sleep(70), regionSharpness(u, v))) / 2;
+    };
+    const steps = 9, span = caps.max - caps.min;
+    let best = caps.min, bestS = -1;
+    for (let i = 0; i < steps; i++) {               // 1단계: 전체 범위를 9칸으로
+      const d = caps.min + (span * i) / (steps - 1);
+      const sc = await measure(d);
+      if (sc > bestS) { bestS = sc; best = d; }
+    }
+    const h = span / (steps - 1);
+    for (const off of [-0.66, -0.33, 0.33, 0.66]) {  // 2단계: 가장 선명했던 곳 주변을 세밀하게
+      const d = Math.min(caps.max, Math.max(caps.min, best + off * h));
+      const sc = await measure(d);
+      if (sc > bestS) { bestS = sc; best = d; }
+    }
+    await setFocusDist(best);
+    motion.cfg.focusLock = true;
+    motion.cfg.focusDist = best;
+    saveMotionCfg();
+    return { ok: true, msg: "누른 곳에 초점을 맞추고 고정했어요" };
+  } catch (e) {
+    return { ok: false, msg: "초점 조절 실패: " + (e.message || e) };
+  } finally {
+    focusBusy = false;
+    resetMotion(2500);
+    broadcastInfo();
+  }
+}
+async function focusAuto() {
+  const t = camVideoTrack();
+  motion.cfg.focusLock = false;
+  delete motion.cfg.focusDist;
+  saveMotionCfg();
+  try { if (focusModes().includes("continuous")) await t.applyConstraints({ advanced: [{ focusMode: "continuous" }] }); } catch (_) {}
+  resetMotion(2500);
+  broadcastInfo();
+}
 async function applyFocusLock() {
   const t = camVideoTrack();
   if (!t) return;
   const modes = focusModes();
   try {
-    if (motion.cfg.focusLock) {
+    if (motion.cfg.focusLock && motion.cfg.focusDist != null && focusDistCaps()) {
+      await sleep(800);
+      await setFocusDist(motion.cfg.focusDist);   // 길게 눌러 맞춘 초점 거리 그대로 복원
+    } else if (motion.cfg.focusLock) {
       await sleep(1500);   // 먼저 초점을 한 번 잡게 한 뒤 고정
       if (modes.includes("manual")) await t.applyConstraints({ advanced: [{ focusMode: "manual" }] });
       else if (modes.includes("single-shot")) await t.applyConstraints({ advanced: [{ focusMode: "single-shot" }] });
@@ -1456,6 +1556,7 @@ function camInfo() {
     cropLive: !cam.crop && !!cam.liveCrop,
     devices: cam.devices || [],
     focusModes: focusModes(),
+    focusDist: !!focusDistCaps(),
     ver: APP_VERSION,
     motion: { ...motion.cfg, lastAt: motion.lastAt }
   };
@@ -1546,6 +1647,11 @@ function handleCamMessage(m, conn) {
     restartVideo();
   } else if (m.t === "hello") {
     broadcastInfo();
+  } else if (m.t === "focusAt") {
+    sendAll({ t: "toast", text: "초점 맞추는 중… (몇 초 걸려요)" });
+    focusAt(Math.min(1, Math.max(0, +m.u)), Math.min(1, Math.max(0, +m.v))).then((r) => sendAll({ t: "toast", text: r.msg }));
+  } else if (m.t === "focusAuto") {
+    focusAuto().then(() => sendAll({ t: "toast", text: "자동 초점으로 되돌렸어요" }));
   } else if (m.t === "black") {
     setBlack(!!m.v);
   } else if (m.t === "motionCfg" && m.cfg) {
@@ -1902,10 +2008,10 @@ setInterval(async () => {
 }, 1000);
 
 /* ---------- 손가락 확대 / 이동 (공용: 아이폰 보기 화면 + 아이패드 구도 잡기) ---------- */
-function makeZoomable(stageEl, targetEl, badgeEl, onTap, isFs) {
+function makeZoomable(stageEl, targetEl, badgeEl, onTap, isFs, onLong) {
   const z = { s: 1, tx: 0, ty: 0, enabled: true, onChange: null };
   const pointers = new Map();
-  let gesture = null, lastTap = 0, tapTimer = null, moved = false;
+  let gesture = null, lastTap = 0, tapTimer = null, moved = false, longTimer = null, longFired = false;
 
   function clampPan() {
     const st = stageEl.getBoundingClientRect();
@@ -1947,7 +2053,14 @@ function makeZoomable(stageEl, targetEl, badgeEl, onTap, isFs) {
   stageEl.addEventListener("pointerdown", (e) => {
     stageEl.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, localPt(e));
-    if (pointers.size === 1) moved = false;
+    if (pointers.size === 1) {
+      moved = false; longFired = false;
+      clearTimeout(longTimer);
+      if (onLong) {
+        const cx = e.clientX, cy = e.clientY;
+        longTimer = setTimeout(() => { if (!moved && pointers.size === 1) { longFired = true; onLong(cx, cy); } }, 600);
+      }
+    } else clearTimeout(longTimer);
     startGesture();
   });
   stageEl.addEventListener("pointermove", (e) => {
@@ -1974,6 +2087,8 @@ function makeZoomable(stageEl, targetEl, badgeEl, onTap, isFs) {
   function endPointer(e) {
     const pt = pointers.get(e.pointerId);
     pointers.delete(e.pointerId);
+    clearTimeout(longTimer);
+    if (longFired) { if (pointers.size === 0) longFired = false; startGesture(); return; }
     if (pointers.size === 0 && !moved && pt) {
       const now = Date.now();
       if (now - lastTap < 300 && z.enabled) {
@@ -1992,7 +2107,34 @@ function makeZoomable(stageEl, targetEl, badgeEl, onTap, isFs) {
   window.addEventListener("resize", () => render(false));
   return z;
 }
-const viewZoom = makeZoomable($("stage"), $("remoteWrap"), $("zoomBadge"), () => $("view").classList.toggle("hide-ui"));
+// 화면의 누른 점 → 원본 영상 기준 위치(0~1)
+function pointToSource(vid, cx, cy) {
+  const r = vid.getBoundingClientRect(), vw = vid.videoWidth, vh = vid.videoHeight;
+  if (!vw || !r.width) return null;
+  let cw = r.width, ch = r.height, ox = r.left, oy = r.top;
+  if (getComputedStyle(vid).objectFit === "contain") {      // 영상 칸 안에 여백이 있을 때
+    const k = Math.min(r.width / vw, r.height / vh);
+    cw = vw * k; ch = vh * k; ox += (r.width - cw) / 2; oy += (r.height - ch) / 2;
+  }
+  const u = (cx - ox) / cw, v = (cy - oy) / ch;
+  if (u < 0 || u > 1 || v < 0 || v > 1) return null;
+  return { u, v };
+}
+function showFocusRing(cx, cy) {
+  const el = document.createElement("div");
+  el.className = "focusring";
+  el.style.left = cx + "px"; el.style.top = cy + "px";
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1600);
+}
+const viewZoom = makeZoomable($("stage"), $("remoteWrap"), $("zoomBadge"), () => $("view").classList.toggle("hide-ui"), null, (cx, cy) => {
+  const p = pointToSource($("remote"), cx, cy);
+  if (!p) return;
+  if (view.info && !view.info.focusDist && !(view.info.focusModes || []).includes("single-shot"))
+    return toast("이 아이패드 Safari는 초점 조절을 지원하지 않아요. 설정에서 렌즈를 '후면 카메라'로 바꿔보세요.", null, null, 6000);
+  showFocusRing(cx, cy);
+  sendCtl({ t: "focusAt", u: p.u, v: p.v });
+});
 
 // 고정 구도대로 보여주기: 영상 자체에 효과를 거는 대신, 구도 크기의 상자 안에 큰 영상을 배치해서 잘라냄
 function parseRes(str) { const m = /(\d+)\D+(\d+)/.exec(str || ""); return m ? [+m[1], +m[2]] : [0, 0]; }
@@ -2026,7 +2168,13 @@ function applyViewCrop() {
 window.addEventListener("resize", applyViewCrop);
 ["playing", "loadeddata"].forEach((ev) => $("remote").addEventListener(ev, applyViewCrop));
 setInterval(() => { if (!$("view").hidden) applyViewCrop(); }, 2000);   // 혹시 놓쳐도 2초마다 다시 적용
-const camZoom = makeZoomable($("camStage"), $("camVideo"), $("camZoomBadge"), () => $("cam").classList.toggle("hide-ui"));
+const camZoom = makeZoomable($("camStage"), $("camVideo"), $("camZoomBadge"), () => $("cam").classList.toggle("hide-ui"), null, (cx, cy) => {
+  const p = pointToSource($("camVideo"), cx, cy);
+  if (!p) return;
+  showFocusRing(cx, cy);
+  toast("초점 맞추는 중…");
+  focusAt(p.u, p.v).then((r) => toast(r.msg));
+});
 camZoom.onChange = () => { updateCropUI(); scheduleLiveCrop(); };
 // 구도를 조정하는 동안(고정 전)에도 아이패드 화면 그대로 아이폰에 바로 보여주기
 let liveCropTimer = null;
@@ -2065,7 +2213,7 @@ function fillSheet(cfg, fromRemote) {
   set("mAutoBlack", "value", String(cfg.autoBlack ?? 60));
   set("mReplay", "value", String(cfg.replayMin ?? 10));
   set("mFocus", "checked", !!cfg.focusLock);
-  const info = sheetMode === "cam" ? { devices: cam.devices || [], focusModes: focusModes() } : (view.info || {});
+  const info = sheetMode === "cam" ? { devices: cam.devices || [], focusModes: focusModes(), focusDist: !!focusDistCaps() } : (view.info || {});
   const sel = $("mDevice");
   if (sel !== document.activeElement) {
     sel.innerHTML = "";
@@ -2075,7 +2223,9 @@ function fillSheet(cfg, fromRemote) {
     sel.value = cfg.deviceId || "";
   }
   const fm = info.focusModes || [];
-  $("mFocusNote").innerHTML = (fm.includes("manual") || fm.includes("single-shot"))
+  $("mFocusNote").innerHTML = info.focusDist
+    ? "<b>화면을 길게 누르면</b> 그 부분에 초점을 맞추고 고정해요(몇 초 걸려요). 다시 자동으로 하려면 '자동 초점으로 되돌리기'를 누르세요."
+    : (fm.includes("manual") || fm.includes("single-shot"))
     ? "초점 고정을 지원하는 카메라예요. 켜면 초점을 한 번 잡은 뒤 고정해요. 초점이 계속 바뀌면 렌즈를 <b>'후면 카메라'</b>(듀얼·트리플 아닌 것)로도 바꿔보세요."
     : "이 아이패드 Safari는 초점 고정을 지원하지 않아요. 대신 렌즈를 <b>'후면 카메라'</b>(듀얼·트리플 아닌 것)로 고르면 렌즈가 바뀌면서 화면이 튀는 걸 막을 수 있어요.";
   updateBlackBtn();
@@ -2123,6 +2273,10 @@ $("mCopy").onclick = () => {
   );
 };
 $("mClose").onclick = () => ($("sheetBack").hidden = true);
+$("mFocusAuto").onclick = () => {
+  if (sheetMode === "cam") focusAuto().then(() => { toast("자동 초점으로 되돌렸어요"); fillSheet({ ...motion.cfg, lastAt: motion.lastAt }); });
+  else { sendCtl({ t: "focusAuto" }); $("mFocus").checked = false; }
+};
 
 /* ---------- 알림 안 받는 시간 목록 편집 ---------- */
 let qRules = [], qShown = "";
