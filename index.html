@@ -404,7 +404,16 @@
         <option value="60">1시간</option>
       </select>
     </label>
-    <div class="hint">아이패드가 블랙박스처럼 최근 영상을 계속 덮어쓰며 보관해요. 아이폰 '재생' 버튼으로 볼 수 있어요. 아이패드 용량을 10분에 약 150MB, 1시간에 약 1GB 써요.</div>
+    <div class="hint">아이패드가 블랙박스처럼 최근 영상을 계속 덮어쓰며 보관해요. 아이폰 '재생' 버튼으로 볼 수 있어요. 아이패드 용량을 10분에 약 90MB, 1시간에 약 550MB 써요.</div>
+
+    <div class="sec">💾 아이패드 저장 공간</div>
+    <div class="hint" id="mStore">-</div>
+    <label class="row"><span>최대 사용 용량</span>
+      <select id="mCap"><option value="2">2GB</option><option value="5">5GB</option><option value="10">10GB</option><option value="20">20GB</option></select>
+    </label>
+    <div class="hint">넘으면 오래된 움직임 영상부터 자동으로 지워요.</div>
+    <div class="btns"><button id="mDelClips">움직임 영상 전체 삭제</button><button id="mDelFrames">타임랩스 전체 삭제</button></div>
+    <button id="mDelReplay">최근 영상(재생) 전체 삭제</button>
 
     <div class="sec">📼 자동 기록</div>
     <label class="row"><span>켜기</span><input type="checkbox" id="mRec"></label>
@@ -515,7 +524,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-23.31";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-24.32";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -694,7 +703,7 @@ const motion = {
       enabled: true, sens: "mid", cooldown: 60, topic: "",
       quiet: false, qFrom: "23:00", qTo: "07:00",
       rec: false, rFrom: "00:00", rTo: "07:00", tlSec: 10, clips: true, clipSec: 30, keepDays: 3,
-      autoBlack: 60, replayMin: 60, deviceId: "", focusLock: false
+      autoBlack: 60, replayMin: 60, deviceId: "", focusLock: false, capGB: 5
     },
     JSON.parse(localStorage.getItem("petcam_motion") || "{}")
   ),
@@ -748,6 +757,7 @@ function applyMotionCfg(cfg) {
   if ([1, 3, 7].includes(+cfg.keepDays)) motion.cfg.keepDays = +cfg.keepDays;
   if (cfg.autoBlack !== undefined && [0, 30, 60, 180].includes(+cfg.autoBlack)) motion.cfg.autoBlack = +cfg.autoBlack;
   if (cfg.replayMin !== undefined && [0, 5, 10, 30, 60].includes(+cfg.replayMin)) motion.cfg.replayMin = +cfg.replayMin;
+  if ([2, 5, 10, 20].includes(+cfg.capGB)) { const ch = motion.cfg.capGB !== +cfg.capGB; motion.cfg.capGB = +cfg.capGB; if (ch && cam.stream) setTimeout(enforceStorage, 500); }
   let camChanged = false, focusChanged = false;
   if (typeof cfg.deviceId === "string" && cfg.deviceId !== motion.cfg.deviceId) { motion.cfg.deviceId = cfg.deviceId; camChanged = true; }
   if (typeof cfg.focusLock === "boolean" && cfg.focusLock !== motion.cfg.focusLock) { motion.cfg.focusLock = cfg.focusLock; focusChanged = true; }
@@ -1024,6 +1034,17 @@ const idbGet = (store, key) => idbReq(store, "readonly", (s) => s.get(key));
 const idbKeysBySession = (store, sid) => idbReq(store, "readonly", (s) => s.index("session").getAllKeys(IDBKeyRange.only(sid)));
 const idbCountBySession = (store, sid) => idbReq(store, "readonly", (s) => s.index("session").count(IDBKeyRange.only(sid)));
 
+async function sumStore(store, sizeOf) {
+  const db = await idb();
+  return new Promise((resolve, reject) => {
+    let n = 0, bytes = 0;
+    const t = db.transaction(store, "readonly");
+    const c = t.objectStore(store).openCursor();
+    c.onsuccess = () => { const cur = c.result; if (cur) { n++; bytes += sizeOf(cur.value); cur.continue(); } };
+    t.oncomplete = () => resolve({ n, bytes });
+    t.onerror = () => reject(t.error);
+  });
+}
 async function idbDeleteSession(sid) {
   const db = await idb();
   return new Promise((resolve, reject) => {
@@ -1091,6 +1112,34 @@ const localRecords = {
     return keys.map((k) => { const [ts, dur] = String(k).split("_"); return { id: k, ts: +ts, dur: +dur }; }).sort((a, b) => a.ts - b.ts);
   },
   async getReplay(id) { return (await idbGet("replay", id))?.blob || null; },
+  // 종류별 용량
+  async storageBreakdown() {
+    const [clips, frames, replay] = await Promise.all([
+      sumStore("clips", (v) => (v.blob?.size || 0) + (v.thumb?.size || 0)),
+      sumStore("frames", (v) => v.blob?.size || 0),
+      sumStore("replay", (v) => v.blob?.size || 0)
+    ]);
+    let est = null;
+    try { const e = await navigator.storage.estimate(); est = { used: e.usage || 0, quota: e.quota || 0 }; } catch (_) {}
+    return { clips, frames, replay, est, capGB: motion.cfg.capGB || 5 };
+  },
+  // 종류별 전체 삭제
+  async deleteAll(kind) {
+    if (kind === "clips") {
+      if (rec.clip) { rec.clip.session = null; finishClip(); }
+      await idbReq("clips", "readwrite", (s) => s.clear());
+      const all = (await idbReq("sessions", "readonly", (s) => s.getAll())) || [];
+      for (const x of all) if (x.kind === "day") await idbReq("sessions", "readwrite", (s) => s.delete(x.id));
+    } else if (kind === "frames") {
+      await idbReq("frames", "readwrite", (s) => s.clear());
+      const all = (await idbReq("sessions", "readonly", (s) => s.getAll())) || [];
+      for (const x of all) if (x.kind !== "day" && x.id !== rec.session && !(await idbCountBySession("clips", x.id))) await idbReq("sessions", "readwrite", (s) => s.delete(x.id));
+      rec.frames = 0;
+    } else if (kind === "replay") {
+      await idbReq("replay", "readwrite", (s) => s.clear());
+    }
+    return true;
+  },
   async storageInfo() {
     try { const e = await navigator.storage.estimate(); return { used: e.usage || 0, quota: e.quota || 0 }; }
     catch (_) { return null; }
@@ -1108,6 +1157,37 @@ async function cleanupOldSessions() {
   } catch (e) { console.warn("cleanup", e); }
 }
 
+// 최대 사용 용량을 넘으면: 오래된 움직임 영상부터 지우고, 그래도 넘으면 오래된 타임랩스부터
+let storageBusy = false;
+async function enforceStorage() {
+  if (storageBusy) return;
+  storageBusy = true;
+  try {
+    const cap = (motion.cfg.capGB || 5) * 1e9, goal = cap * 0.9;
+    const b = await localRecords.storageBreakdown();
+    let total = b.clips.bytes + b.frames.bytes + b.replay.bytes;
+    if (total <= cap) return;
+    const keys = ((await idbReq("clips", "readonly", (s) => s.getAllKeys())) || [])
+      .map((k) => ({ k, ts: +String(k).split("_")[1] })).sort((x, y) => x.ts - y.ts);
+    for (const { k } of keys) {
+      if (total <= goal) break;
+      const r = await idbGet("clips", k);
+      await idbReq("clips", "readwrite", (s) => s.delete(k));
+      total -= (r?.blob?.size || 0) + (r?.thumb?.size || 0);
+    }
+    if (total > goal) {
+      const sess = ((await idbReq("sessions", "readonly", (s) => s.getAll())) || [])
+        .filter((x) => x.kind !== "day" && x.id !== rec.session).sort((x, y) => x.start - y.start);
+      for (const x of sess) {
+        if (total <= goal) break;
+        await localRecords.deleteTimelapse(x.id);
+        const nb = await localRecords.storageBreakdown();
+        total = nb.clips.bytes + nb.frames.bytes + nb.replay.bytes;
+      }
+    }
+  } catch (e) { console.warn("storage", e); }
+  finally { storageBusy = false; }
+}
 function pickRecMime() {
   const types = ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp8", "video/webm"];
   return types.find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
@@ -1138,7 +1218,7 @@ function startClip() {
   if (!tracks.length || !window.MediaRecorder) return;
   const mime = pickRecMime();
   let r;
-  try { r = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType: mime, videoBitsPerSecond: 2_500_000 } : undefined); }
+  try { r = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType: mime, videoBitsPerSecond: 1_500_000 } : undefined); }
   catch (e) { console.warn("clip", e); return; }
   const clip = { startAt: now, endAt: now + c.clipSec * 1000, chunks: [], r, session: rec.session, thumb: null };
   rec.clip = clip;
@@ -1182,7 +1262,7 @@ function replayStart() {
   if (!tracks.length || !window.MediaRecorder) return;
   const mime = pickRecMime();
   let r;
-  try { r = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType: mime, videoBitsPerSecond: 2_000_000 } : undefined); }
+  try { r = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType: mime, videoBitsPerSecond: 1_200_000 } : undefined); }
   catch (e) { console.warn("replay", e); return; }
   const seg = { startAt: Date.now(), chunks: [] };
   r.ondataavailable = (e) => { if (e.data.size) seg.chunks.push(e.data); };
@@ -1273,7 +1353,7 @@ async function sendBlobTo(conn, id, blob) {
     while (conn.dataChannel && conn.dataChannel.bufferedAmount > 2 * 1024 * 1024) await sleep(20);
   }
 }
-const RPC_METHODS = ["listSessions", "listFrames", "listClips", "getFrame", "getClip", "getThumb", "deleteSession", "storageInfo", "listReplay", "getReplay", "listAllClips", "deleteTimelapse"];
+const RPC_METHODS = ["listSessions", "listFrames", "listClips", "getFrame", "getClip", "getThumb", "deleteSession", "storageInfo", "listReplay", "getReplay", "listAllClips", "deleteTimelapse", "storageBreakdown", "deleteAll"];
 async function handleRpc(m, conn) {
   if (!conn || !RPC_METHODS.includes(m.method)) return;
   try {
@@ -1769,6 +1849,8 @@ async function startCamMode() {
   if (motion.cfg.focusLock) applyFocusLock();
   replayStart();
   setInterval(replayTick, 5000);
+  setTimeout(() => { cleanupOldSessions(); enforceStorage(); }, 15000);
+  setInterval(() => { cleanupOldSessions(); enforceStorage(); }, 10 * 60 * 1000);
   updateRecPill();
 
   // 손 안 대면 자동으로 화면 끄기
@@ -2211,6 +2293,7 @@ function fillSheet(cfg, fromRemote) {
   set("mClipSec", "value", String(cfg.clipSec || 30));
   set("mKeep", "value", String(cfg.keepDays || 3));
   set("mAutoBlack", "value", String(cfg.autoBlack ?? 60));
+  set("mCap", "value", String(cfg.capGB || 5));
   set("mReplay", "value", String(cfg.replayMin ?? 10));
   set("mFocus", "checked", !!cfg.focusLock);
   const info = sheetMode === "cam" ? { devices: cam.devices || [], focusModes: focusModes(), focusDist: !!focusDistCaps() } : (view.info || {});
@@ -2238,13 +2321,37 @@ function openSheet(mode) {
   fillSheet(cfg);
   $("mTopic").readOnly = mode !== "cam";
   $("sheetBack").hidden = false;
+  loadStoreInfo();
+}
+const storeApi = () => (sheetMode === "cam" ? localRecords : remoteRecords);
+function fmtSize(n) { return n >= 1e9 ? (n / 1e9).toFixed(1) + "GB" : Math.round(n / 1e6) + "MB"; }
+async function loadStoreInfo() {
+  $("mStore").textContent = "용량 확인 중…";
+  try {
+    const b = await storeApi().storageBreakdown();
+    const total = b.clips.bytes + b.frames.bytes + b.replay.bytes;
+    $("mStore").innerHTML =
+      `움직임 영상 ${b.clips.n}개 · ${fmtSize(b.clips.bytes)}<br>` +
+      `타임랩스 사진 ${b.frames.n}장 · ${fmtSize(b.frames.bytes)}<br>` +
+      `최근 영상(재생) · ${fmtSize(b.replay.bytes)}<br>` +
+      `<b>합계 ${fmtSize(total)}</b> (최대 ${b.capGB}GB)`;
+  } catch (e) {
+    $("mStore").textContent = "용량을 불러오지 못했어요" + (e.message ? ": " + e.message : "");
+  }
+}
+async function deleteKind(kind, label) {
+  if (!confirm(`${label}을(를) 아이패드에서 모두 삭제할까요? 되돌릴 수 없어요.`)) return;
+  $("mStore").textContent = "삭제 중…";
+  try { await storeApi().deleteAll(kind); toast(`${label}을(를) 삭제했어요`); }
+  catch (e) { toast("삭제 실패: " + e.message); }
+  loadStoreInfo();
 }
 function sheetChanged() {
   const cfg = {
     enabled: $("mEnabled").checked, sens: $("mSens").value, cooldown: +$("mCooldown").value,
     rec: $("mRec").checked, rFrom: $("mRFrom").value, rTo: $("mRTo").value,
     tlSec: +$("mTl").value, clips: $("mClips").checked, clipSec: +$("mClipSec").value, keepDays: +$("mKeep").value,
-    autoBlack: +$("mAutoBlack").value, replayMin: +$("mReplay").value,
+    autoBlack: +$("mAutoBlack").value, replayMin: +$("mReplay").value, capGB: +$("mCap").value,
     deviceId: $("mDevice").value, focusLock: $("mFocus").checked
   };
   if (sheetMode === "cam") { applyMotionCfg({ ...cfg, topic: $("mTopic").value }); recTick(); }
@@ -2254,7 +2361,7 @@ function sheetChanged() {
     sendCtl({ t: "motionCfg", cfg });
   }
 }
-["mEnabled", "mSens", "mCooldown", "mTopic", "mRec", "mRFrom", "mRTo", "mTl", "mClips", "mClipSec", "mKeep", "mAutoBlack", "mReplay", "mDevice", "mFocus"].forEach((id) => $(id).addEventListener("change", sheetChanged));
+["mEnabled", "mSens", "mCooldown", "mTopic", "mRec", "mRFrom", "mRTo", "mTl", "mClips", "mClipSec", "mKeep", "mAutoBlack", "mReplay", "mDevice", "mFocus", "mCap"].forEach((id) => $(id).addEventListener("change", sheetChanged));
 $("mTest").onclick = async () => {
   if (sheetMode === "cam") {
     toast("보내는 중…");
@@ -2273,6 +2380,9 @@ $("mCopy").onclick = () => {
   );
 };
 $("mClose").onclick = () => ($("sheetBack").hidden = true);
+$("mDelClips").onclick = () => deleteKind("clips", "움직임 영상");
+$("mDelFrames").onclick = () => deleteKind("frames", "타임랩스 사진");
+$("mDelReplay").onclick = () => deleteKind("replay", "최근 영상");
 $("mFocusAuto").onclick = () => {
   if (sheetMode === "cam") focusAuto().then(() => { toast("자동 초점으로 되돌렸어요"); fillSheet({ ...motion.cfg, lastAt: motion.lastAt }); });
   else { sendCtl({ t: "focusAuto" }); $("mFocus").checked = false; }
