@@ -152,6 +152,7 @@
   .mini{padding:7px 10px;font-size:13px;border-radius:10px;white-space:nowrap}
   .rec-pill{color:#fff;background:rgba(255,77,79,.85)!important;border-color:transparent!important}
   .rec-pill #recTime{color:#fff}
+  .warn-pill{color:#fff;background:rgba(255,77,79,.9)!important;border-color:transparent!important;white-space:normal}
   .vbar{display:grid!important;grid-template-columns:repeat(6,1fr);gap:6px;padding-left:8px;padding-right:8px}
   .tile{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
     min-height:60px;padding:8px 2px;border-radius:14px;border:1.5px solid;cursor:pointer;
@@ -311,6 +312,7 @@
       <span class="pill" id="stats">-</span>
       <span class="pill fixed-badge" id="vCropPill" hidden>구도 고정</span>
       <span class="pill" id="vScore" hidden>-</span>
+      <span class="pill warn-pill" id="vStoreErr" hidden></span>
       <span class="pill rec-pill" id="recPill" hidden>● 녹화 중 <span id="recTime">00:00</span></span>
     </div>
     <div class="tr">
@@ -524,7 +526,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-24.32";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-25.33";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -1012,11 +1014,26 @@ function idb() {
       if (!has("sessions")) d.createObjectStore("sessions", { keyPath: "id" });
       if (!has("replay")) d.createObjectStore("replay", { keyPath: "id" });
     };
-    r.onsuccess = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
+    r.onsuccess = () => {
+      const db = r.result;
+      db.onclose = () => { dbPromise = null; };            // 저장소가 닫히면 다음에 다시 열기
+      db.onversionchange = () => { db.close(); dbPromise = null; };
+      storeOk();
+      resolve(db);
+    };
+    r.onerror = () => { dbPromise = null; storeFail(r.error); reject(r.error); };   // 실패하면 다음에 다시 시도
   });
   return dbPromise;
 }
+// 저장 실패(아이패드 저장 공간 부족 등) 상태 → 아이폰에 경고
+let storeErr = "";
+function storeFail(e) {
+  const msg = String(e?.message || e || "");
+  const full = /disk|quota|space|full|open database/i.test(msg) || e?.name === "QuotaExceededError";
+  const next = full ? "아이패드 저장 공간이 부족해서 영상이 저장되지 않고 있어요" : "영상 저장 중 문제가 생겼어요";
+  if (next !== storeErr) { storeErr = next; try { broadcastInfo(); } catch (_) {} }
+}
+function storeOk() { if (storeErr) { storeErr = ""; try { broadcastInfo(); } catch (_) {} } }
 async function idbReq(store, mode, fn) {
   const db = await idb();
   return new Promise((resolve, reject) => {
@@ -1024,9 +1041,9 @@ async function idbReq(store, mode, fn) {
     const r = fn(t.objectStore(store));
     let out;
     if (r) r.onsuccess = () => (out = r.result);
-    t.oncomplete = () => resolve(out);
-    t.onerror = () => reject(t.error);
-    t.onabort = () => reject(t.error);
+    t.oncomplete = () => { if (mode === "readwrite") storeOk(); resolve(out); };
+    t.onerror = () => { storeFail(t.error); reject(t.error); };
+    t.onabort = () => { storeFail(t.error); reject(t.error); };
   });
 }
 const idbPut = (store, obj) => idbReq(store, "readwrite", (s) => s.put(obj));
@@ -1636,6 +1653,7 @@ function camInfo() {
     cropLive: !cam.crop && !!cam.liveCrop,
     devices: cam.devices || [],
     focusModes: focusModes(),
+    storeErr,
     focusDist: !!focusDistCaps(),
     ver: APP_VERSION,
     motion: { ...motion.cfg, lastAt: motion.lastAt }
@@ -2056,6 +2074,8 @@ function warnOldCamera(force) {
 }
 function applyInfo(m) {
   view.info = m;
+  $("vStoreErr").hidden = !m.storeErr;
+  $("vStoreErr").textContent = m.storeErr ? "⚠️ " + m.storeErr : "";
   if (!verShown) { verShown = true; toast(`아이폰 v${APP_VERSION.split(".").pop()} · 아이패드 v${(m.ver || "?").split(".").pop()}`, null, null, 4000); }
   if (m.ver !== APP_VERSION) warnOldCamera();
   if (m.motion) {
