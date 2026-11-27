@@ -526,7 +526,7 @@
    ===================================================================== */
 "use strict";
 
-const APP_VERSION = "2026-11-25.33";   // 아이패드/아이폰 버전이 다르면 경고
+const APP_VERSION = "2026-11-28.34";   // 아이패드/아이폰 버전이 다르면 경고
 const PEERJS_URL = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
 // 기본값(빈 객체) = PeerJS 무료 공개 서버 사용. 직접 서버를 돌릴 때만 host/port 등을 넣으면 됨
 const PEER_OPTIONS = {};
@@ -1360,13 +1360,49 @@ function bytesToB64(u8) {
   return btoa(s);
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function sendBlobTo(conn, id, blob) {
-  const buf = new Uint8Array(await blob.arrayBuffer());
-  const CH = 11000;   // PeerJS(JSON) 한 번에 보낼 수 있는 크기(약 16KB) 안으로
-  const total = Math.max(1, Math.ceil(buf.length / CH));
+// 영상 전용 통로: 이미 연결된 데이터 연결 위에 '약속된 번호(33)'로 바이너리 채널을 하나 더 엶 (양쪽이 같은 번호로 만들면 바로 연결됨)
+function makeFileChannel(conn) {
+  try {
+    const pc = conn.peerConnection;
+    if (!pc || !pc.createDataChannel) return null;
+    const dc = pc.createDataChannel("petcam-files", { negotiated: true, id: 33, ordered: true });
+    dc.binaryType = "arraybuffer";
+    return dc;
+  } catch (_) { return null; }
+}
+const rpcCancelled = new Set();
+// 바이너리로 보내기: [요청번호 4바이트][조각번호 4바이트][데이터]
+async function sendBlobBinary(conn, dc, id, blob) {
+  const CH = 60000;
+  const total = Math.max(1, Math.ceil(blob.size / CH));
+  conn.send({ t: "rpcFile", id, total, size: blob.size, mime: blob.type });
   for (let i = 0; i < total; i++) {
-    if (!conn.open) return;
-    conn.send({ t: "rpcChunk", id, seq: i, total, mime: blob.type, data: bytesToB64(buf.subarray(i * CH, (i + 1) * CH)) });
+    if (!conn.open || dc.readyState !== "open" || rpcCancelled.has(conn.peer + ":" + id)) return;
+    const part = new Uint8Array(await blob.slice(i * CH, (i + 1) * CH).arrayBuffer());
+    const msg = new Uint8Array(8 + part.length);
+    const dv = new DataView(msg.buffer);
+    dv.setUint32(0, id); dv.setUint32(4, i);
+    msg.set(part, 8);
+    dc.send(msg.buffer);
+    if (dc.bufferedAmount > 8 * 1024 * 1024) {      // 보낼 게 많이 쌓이면 줄어들 때까지 대기
+      dc.bufferedAmountLowThreshold = 2 * 1024 * 1024;
+      await new Promise((r) => { const t = setTimeout(r, 1000); dc.addEventListener("bufferedamountlow", () => { clearTimeout(t); r(); }, { once: true }); });
+      if (rpcCancelled.has(conn.peer + ":" + id) || dc.readyState !== "open") return;
+    }
+  }
+}
+// 예전 방식(글자로 바꿔 작은 조각으로) — 상대가 옛 버전일 때만
+async function sendBlobTo(conn, id, blob) {
+  const v = cam.viewers.get(conn.peer);
+  if (v && v.fileDc && v.fileDc.readyState === "open" && !(blob.type || "").startsWith("application/json")) {
+    return sendBlobBinary(conn, v.fileDc, id, blob);
+  }
+  const CH = 11000;   // PeerJS(JSON) 한 번에 보낼 수 있는 크기(약 16KB) 안으로
+  const total = Math.max(1, Math.ceil(blob.size / CH));
+  for (let i = 0; i < total; i++) {
+    if (!conn.open || rpcCancelled.has(conn.peer + ":" + id)) return;
+    const part = new Uint8Array(await blob.slice(i * CH, (i + 1) * CH).arrayBuffer());
+    conn.send({ t: "rpcChunk", id, seq: i, total, mime: blob.type, size: blob.size, data: bytesToB64(part) });
     while (conn.dataChannel && conn.dataChannel.bufferedAmount > 2 * 1024 * 1024) await sleep(20);
   }
 }
@@ -1732,6 +1768,7 @@ async function restartVideo() {
 function handleCamMessage(m, conn) {
   if (!m || typeof m !== "object") return;
   if (m.t === "rpc") { handleRpc(m, conn); return; }
+  if (m.t === "rpcCancel") { rpcCancelled.add(conn.peer + ":" + m.id); return; }
   if (m.t === "zoom") applyZoom(+m.v).then(broadcastInfo);
   else if (m.t === "flip") {
     cam.facing = cam.facing === "environment" ? "user" : "environment";
@@ -1774,6 +1811,7 @@ function onViewerConn(conn) {
   conn.on("open", () => {
     if (cam.viewers.has(conn.peer)) dropViewer(conn.peer);
     const v = { conn, call: null, videoSender: null, audioSender: null, connected: false };
+    v.fileDc = makeFileChannel(conn);
     cam.viewers.set(conn.peer, v);
     try { conn.send(camInfo()); } catch (_) {}
 
@@ -1974,13 +2012,18 @@ function connectToCam() {
 
   const conn = view.peer.connect(view.camId, { serialization: "json", reliable: true });
   view.conn = conn;
-  conn.on("open", () => conn.send({ t: "hello" }));
+  conn.on("open", () => {
+    conn.send({ t: "hello" });
+    const dc = makeFileChannel(conn);
+    if (dc) dc.onmessage = (e) => onFileChunk(e.data);
+    view.fileDc = dc;
+  });
   conn.on("data", (m) => {
     if (!m || typeof m !== "object") return;
     if (m.t === "info") applyInfo(m);
     else if (m.t === "motion") onMotionEvent(m);
     else if (m.t === "toast") toast(m.text);
-    else if (m.t === "rpcRes" || m.t === "rpcChunk") onRpcMessage(m);
+    else if (m.t === "rpcRes" || m.t === "rpcChunk" || m.t === "rpcFile") onRpcMessage(m);
     else if (m.t === "score") {
       const el = $("vScore");
       el.hidden = false;
@@ -2497,16 +2540,45 @@ function b64ToBytes(b64) {
   for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
   return u;
 }
-function callRemote(method, ...args) {
-  return new Promise((resolve, reject) => {
+function callRemote(method, ...args) { return callRemoteP(method, args, null); }
+// onProgress(받은 바이트, 전체 바이트) — 영상 받는 진행률
+function callRemoteP(method, args, onProgress) {
+  let reqId = 0;
+  const pr = new Promise((resolve, reject) => {
     if (!view.conn || !view.conn.open) return reject(new Error("카메라에 연결되어 있지 않아요"));
-    const id = ++rpc.seq;
-    const p = { resolve, reject, parts: [], got: 0, timer: null };
+    const id = (reqId = ++rpc.seq);
+    const p = { resolve, reject, parts: [], got: 0, bytes: 0, size: 0, total: 0, mime: "", timer: null, onProgress };
     const arm = () => { clearTimeout(p.timer); p.timer = setTimeout(() => { rpc.pending.delete(id); reject(new Error("응답 시간 초과")); }, 30000); };
     p.arm = arm; arm();
     rpc.pending.set(id, p);
     sendCtl({ t: "rpc", id, method, args });
   });
+  pr.rpcId = reqId;
+  return pr;
+}
+// 받는 중인 영상 취소 (닫기 눌렀을 때)
+function cancelRpc(id) {
+  const p = rpc.pending.get(id);
+  if (!p) return;
+  clearTimeout(p.timer);
+  rpc.pending.delete(id);
+  p.reject(new Error("취소됨"));
+  sendCtl({ t: "rpcCancel", id });
+}
+function finishBinary(id, p) {
+  clearTimeout(p.timer); rpc.pending.delete(id);
+  p.resolve(new Blob(p.parts, { type: p.mime || "application/octet-stream" }));
+}
+function onFileChunk(buf) {
+  if (!(buf instanceof ArrayBuffer) || buf.byteLength < 8) return;
+  const dv = new DataView(buf);
+  const id = dv.getUint32(0), seq = dv.getUint32(4);
+  const p = rpc.pending.get(id);
+  if (!p) return;
+  p.arm();
+  if (!p.parts[seq]) { p.parts[seq] = new Uint8Array(buf, 8); p.got++; p.bytes += buf.byteLength - 8; }
+  p.onProgress?.(p.bytes, p.size);
+  if (p.total && p.got === p.total) finishBinary(id, p);
 }
 function onRpcMessage(m) {
   const p = rpc.pending.get(m.id);
@@ -2514,9 +2586,14 @@ function onRpcMessage(m) {
   if (m.t === "rpcRes") {
     clearTimeout(p.timer); rpc.pending.delete(m.id);
     m.error ? p.reject(new Error(m.error)) : p.resolve(m.result);
+  } else if (m.t === "rpcFile") {      // 바이너리 통로로 올 영상의 크기 정보
+    p.arm();
+    p.total = m.total; p.size = m.size; p.mime = m.mime;
+    if (p.got === p.total) finishBinary(m.id, p);
   } else {
     p.arm();
-    if (!p.parts[m.seq]) { p.parts[m.seq] = b64ToBytes(m.data); p.got++; }
+    if (!p.parts[m.seq]) { p.parts[m.seq] = b64ToBytes(m.data); p.got++; p.bytes += p.parts[m.seq].length; }
+    p.onProgress?.(p.bytes, m.size || 0);
     if (p.got === m.total) {
       clearTimeout(p.timer); rpc.pending.delete(m.id);
       const blob = new Blob(p.parts, { type: m.mime || "application/octet-stream" });
@@ -2526,6 +2603,9 @@ function onRpcMessage(m) {
   }
 }
 const remoteRecords = Object.fromEntries(RPC_METHODS.map((k) => [k, (...a) => callRemote(k, ...a)]));
+// 영상은 진행률을 받을 수 있게
+remoteRecords.getClip = (id, onProgress) => callRemoteP("getClip", [id], onProgress);
+remoteRecords.getReplay = (id, onProgress) => callRemoteP("getReplay", [id], onProgress);
 
 const R = { api: null, session: null, frames: [], allClips: [], idx: 0, playing: false, cache: new Map(), inflight: new Map(), clipBlob: null, clipName: "" };
 
@@ -2811,7 +2891,7 @@ $("vRecords").onclick = () => openRecords(remoteRecords);
 $("vReplay").onclick = () => openReplay();
 
 /* ---------- 최근 영상 플레이어 (아이폰) ---------- */
-const RP = { segs: [], all: [], i: 0, cache: new Map(), blob: null, token: 0 };
+const RP = { segs: [], all: [], i: 0, cache: new Map(), blob: null, token: 0, reqs: new Set() };
 function rpLayout() {
   const st = $("rpStage").getBoundingClientRect();
   const v = $("rpVideo");
@@ -2869,7 +2949,8 @@ function rpFitDuration() {
   const v = $("rpVideo");
   if (RP.segs.length !== 1) return;
   if (v.duration === Infinity) {
-    const back = () => { v.removeEventListener("durationchange", back); try { v.currentTime = 0; } catch (_) {} };
+    const back = () => { v.removeEventListener("durationchange", back); clearTimeout(t); try { v.currentTime = 0; } catch (_) {} };
+    const t = setTimeout(back, 1500);     // 길이를 못 알아내도 1.5초 뒤엔 처음으로 되돌리기
     v.addEventListener("durationchange", back);
     try { v.currentTime = 1e9; } catch (_) {}
     return;
@@ -2886,11 +2967,18 @@ async function rpGet(i) {
   const seg = RP.segs[i];
   if (!seg) return null;
   if (RP.cache.has(seg.id)) return RP.cache.get(seg.id);
-  const p = RP.fetch(seg.id).then((b) => b && { url: URL.createObjectURL(b), blob: b });
+  const fp = RP.fetch(seg.id, (got, size) => {
+    if (RP.i !== i) return;
+    const mb = (n) => (n / 1e6).toFixed(1);
+    $("rpTime").textContent = size ? `불러오는 중 ${Math.min(99, Math.floor((got / size) * 100))}% (${mb(got)}/${mb(size)}MB)` : `불러오는 중 ${mb(got)}MB`;
+  });
+  if (fp.rpcId) RP.reqs.add(fp.rpcId);
+  const p = fp.then((b) => { RP.reqs.delete(fp.rpcId); return b && { url: URL.createObjectURL(b), blob: b }; },
+                    (e) => { RP.reqs.delete(fp.rpcId); RP.cache.delete(seg.id); throw e; });
   RP.cache.set(seg.id, p);
   if (RP.cache.size > 4) {     // 오래된 조각은 메모리에서 정리
     const k = RP.cache.keys().next().value;
-    Promise.resolve(RP.cache.get(k)).then((x) => x && URL.revokeObjectURL(x.url));
+    Promise.resolve(RP.cache.get(k)).then((x) => x && URL.revokeObjectURL(x.url), () => {});
     RP.cache.delete(k);
   }
   return p;
@@ -2922,14 +3010,19 @@ async function rpPlay(i, offsetSec = 0) {
   if (!RP.paused) v.play().catch(() => {});
   $("rpPlay").textContent = RP.paused ? "재생" : "일시정지";
   $("rpTime").textContent = timeStr(seg.ts + offsetSec * 1000);
-  rpGet(i + 1);   // 다음 조각 미리 받기
+  rpGet(i + 1)?.catch?.(() => {});   // 다음 조각 미리 받기
 }
 function rpSeek(sec) {
-  sec = Math.max(0, Math.min(RP.total - 0.5, sec));
-  const k = rpAt(sec), within = sec - RP.off[k];
+  sec = Math.max(0, Math.min(RP.total - 0.3, sec));
+  const k = rpAt(sec);
+  let within = sec - RP.off[k];
   const v = $("rpVideo");
   if (k === RP.i && v.readyState >= 1) {
+    // 실제로 이동 가능한 범위 안으로
+    const sk = v.seekable;
+    if (sk && sk.length) within = Math.max(sk.start(0), Math.min(within, sk.end(sk.length - 1) - 0.15));
     try { v.currentTime = within; } catch (_) {}
+    if (v.paused && !RP.paused) v.play().catch(() => {});
     $("rpRange").value = sec;
     $("rpTime").textContent = rpPosLabel(sec);
   } else rpPlay(k, within);
@@ -2976,8 +3069,10 @@ function rpUseSegs(segs, startIdx) {
   rpPlay(startIdx || 0);
 }
 function rpResetCache() {
+  for (const id of RP.reqs) cancelRpc(id);
+  RP.reqs.clear();
   RP.token++;
-  for (const p of RP.cache.values()) Promise.resolve(p).then((x) => x && URL.revokeObjectURL(x.url));
+  for (const p of RP.cache.values()) Promise.resolve(p).then((x) => x && URL.revokeObjectURL(x.url), () => {});
   RP.cache.clear(); RP.blob = null;
 }
 // 기록의 움직임 클립을 재생 화면(전체화면·확대·막대 이동)으로 보기
@@ -3038,9 +3133,11 @@ $("rpSave").onclick = () => {
   saveBlob(RP.blob, `petcam_${stamp()}.${RP.blob.type.includes("mp4") ? "mp4" : "webm"}`);
 };
 $("rpClose").onclick = () => {
+  for (const id of RP.reqs) cancelRpc(id);      // 받는 중이던 영상 전송 바로 멈추기
+  RP.reqs.clear();
   RP.token++;
   const v = $("rpVideo"); v.pause(); v.removeAttribute("src"); v.load();
-  for (const p of RP.cache.values()) Promise.resolve(p).then((x) => x && URL.revokeObjectURL(x.url));
+  for (const p of RP.cache.values()) Promise.resolve(p).then((x) => x && URL.revokeObjectURL(x.url), () => {});
   RP.cache.clear(); RP.blob = null;
   rpSetFs(false);
   $("replayModal").hidden = true;
